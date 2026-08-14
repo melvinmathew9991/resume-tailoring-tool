@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://resume-tailor.invalid/schemas/project_bank.schema.json",
+  "title": "Project Bank",
+  "description": "Pre-verified project content. Every bullet here is hand-written and fact-checked against a source-of-truth record; the tool selects and formats these strings verbatim and never generates new ones. Point your editor at this schema for completion and inline validation while editing project_bank.json.",
+  "type": "object",
+  "minProperties": 1,
+  "propertyNames": {
+    "pattern": "^[a-z0-9][a-z0-9_]{0,63}$",
+    "description": "Stable project key: lowercase letters, digits and underscores."
+  },
+  "additionalProperties": {
+    "type": "object",
+    "required": ["title", "github", "bullets"],
+    "additionalProperties": false,
+    "properties": {
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 300,
+        "description": "LaTeX-formatted title, used verbatim on the resume."
+      },
+      "github": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)?$",
+        "description": "owner/repo, with no https:// prefix -- the template adds it. A bare owner produces a profile link and is reported by the bank linter."
+      },
+      "domain": {
+        "type": "array",
+        "maxItems": 32,
+        "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": "Lowercase domain tags. A domain hit is worth more than a keyword hit when scoring."
+      },
+      "keywords": {
+        "type": "array",
+        "maxItems": 128,
+        "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": "Lowercase terms matched against the job description with word-boundary anchoring."
+      },
+      "bullets": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 40,
+        "items": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "description": "Pre-written, LaTeX-formatted bullets. Used verbatim -- fact-check before adding."
+      },
+      "hidden": {
+        "type": "boolean",
+        "default": false,
+        "description": "Exclude from listing, matching AND generation. Use for unverified or incomplete projects that must never reach a resume."
+      }
+    }
+  }
+}

@@ -1,0 +1,110 @@
+\#{
+  Resume template. Jinja delimiters here are VAR and BLOCK rather than the
+  brace-based defaults, because LaTeX uses braces constantly and mixing the
+  two is a well-known source of silent breakage. Unchanged from the original
+  design -- see render/template_env.py.
+
+  Note this comment deliberately contains no brace characters: a Jinja comment
+  ends at the first closing brace, so writing the delimiters out literally
+  here truncates the comment and produces a template syntax error.
+
+  Every value reaching this template comes from renderer.py, built out of typed
+  models. Caller-supplied data can only ever appear as a value, never as a
+  context key -- which is what makes the reserved-key crash (defect B1)
+  structurally impossible rather than merely guarded against.
+
+  personal.* is plain text and arrives already escaped. Summary, experience
+  bullets, project bullets and titles are pre-verified LaTeX markup, used
+  verbatim.
+}
+\documentclass[a4paper,10pt]{article}
+\usepackage{cmap}
+\usepackage[left=0.6in, right=0.6in, top=0.4in, bottom=0.4in]{geometry}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\hyphenpenalty=10000
+\exhyphenpenalty=10000
+\tolerance=1000
+\emergencystretch=3em
+\usepackage{titlesec}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\pagenumbering{gobble}
+\titleformat{\section}{\normalsize\bfseries}{}{0em}{}[\titlerule]
+\titlespacing{\section}{0pt}{3pt}{2pt}
+\setlist[itemize]{noitemsep, topsep=0pt, leftmargin=*, parsep=0pt}
+\setlength{\parskip}{0pt}
+\setlength{\parindent}{0pt}
+\begin{document}
+\fontsize{\VAR{font_size}}{\VAR{line_spacing}}\selectfont
+
+\begin{center}
+{\Large \textbf{\VAR{personal.name}}} \\[2pt]
+\BLOCK{ if personal.title }
+\textbf{\VAR{personal.title}} \\[2pt]
+\BLOCK{ endif }
+\VAR{contact_line}
+\BLOCK{ if profile_line }
+\\[2pt]
+\VAR{profile_line}
+\BLOCK{ endif }
+\end{center}
+
+\vspace{1pt}
+
+\BLOCK{ if summary }
+\section*{Summary}
+\VAR{summary}
+\BLOCK{ endif }
+
+\BLOCK{ if experience }
+\section*{Experience}
+\BLOCK{ for job in experience }
+\textbf{\VAR{job.title}} \hfill \VAR{job.dates} \\
+\VAR{job.company}
+\BLOCK{ if job.subtitle }
+\\
+\textit{\small \VAR{job.subtitle}}
+\BLOCK{ endif }
+\BLOCK{ if job.bullets }
+\begin{itemize}
+\BLOCK{ for bullet in job.bullets }
+\item \VAR{bullet}
+\BLOCK{ endfor }
+\end{itemize}
+\BLOCK{ endif }
+\vspace{1pt}
+\BLOCK{ endfor }
+\BLOCK{ endif }
+
+\BLOCK{ if projects }
+\section*{Projects}
+\BLOCK{ for proj in projects }
+\textbf{\VAR{proj.title}} \\
+\href{\VAR{proj.github_url}}{GitHub: \VAR{proj.github_display}}
+\begin{itemize}
+\BLOCK{ for bullet in proj.bullets }
+\item \VAR{bullet}
+\BLOCK{ endfor }
+\end{itemize}
+\vspace{1pt}
+\BLOCK{ endfor }
+\BLOCK{ endif }
+
+\BLOCK{ if skills }
+\section*{Skills}
+\BLOCK{ for category in skills }
+\textbf{\VAR{category.name}:}
+\VAR{category.content}
+
+\BLOCK{ endfor }
+\BLOCK{ endif }
+
+\BLOCK{ if education }
+\section*{Education}
+\BLOCK{ for edu in education }
+\textbf{\VAR{edu.degree}}, \VAR{edu.institution} \hfill \VAR{edu.dates}\\[2pt]
+\BLOCK{ endfor }
+\BLOCK{ endif }
+
+\end{document}
