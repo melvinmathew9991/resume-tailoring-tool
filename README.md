@@ -1,172 +1,230 @@
 # Resume Tailoring Tool
 
-A tested, full-stack tool for tailoring a resume against a job description:
-paste a JD, get a ranked project shortlist, select projects, and generate a
-LaTeX-compiled, page-limit-verified PDF.
+Paste a job description, review a keyword match against a bank of pre-verified
+project content, choose what goes on the page, and generate a
+**page-limit-verified** PDF.
 
-## Design principle (read this first)
+Python end to end: **FastAPI** backend, **Streamlit** frontend, LaTeX rendering
+with a pluggable PDF engine.
 
-**This tool never generates new resume text.** Every bullet in
-`data/project_bank.json` is pre-written, hand-verified content -- checked
-against a source-of-truth project record, not produced by a script or an
-LLM at request time. The tool's job is *selection, ordering, and
-formatting* of already-approved content, not writing. This is a
-deliberate boundary, not a limitation to be "fixed" later: a script that
-generates new resume claims on the fly cannot verify those claims are
-true, and this tool is built around the idea that an unverifiable claim
-on a resume is worse than a smaller pool of verified ones.
+---
 
-**What this tool does NOT replace:** a human (or an LLM with access to
-the real source document) still needs to (1) write and verify new bullets
-when you build a new project, (2) apply judgment on borderline project
-relevance -- the matcher is a literal keyword scanner, and a project with
-zero keyword overlap is not necessarily irrelevant, just possibly phrased
-differently than the JD -- and (3) sanity-check the final PDF before
-sending it anywhere. This tool removes the mechanical, repetitive parts
-of that process; it does not remove the need for judgment.
+## The design principle (read this first)
+
+**This tool never generates resume text.** Every bullet in
+`data/project_bank.json` and `data/profile.yaml` is pre-written and
+hand-verified against a source-of-truth record. The tool's job is *selection,
+ordering and formatting* of already-approved content.
+
+That boundary is deliberate and it is not a limitation to be fixed later: a
+program that writes new resume claims cannot verify those claims are true, and
+an unverifiable claim on a resume is worse than a smaller pool of verified ones.
+
+**What it does not replace.** A human still has to write and verify new bullets,
+apply judgment on borderline relevance (the matcher is a keyword scanner, not a
+reader), and look at the final PDF before sending it anywhere.
+
+## The page-fit guarantee
+
+The one safety property the whole tool is built around:
+
+> For every generated resume, either `page_count <= max_pages`, or `warning`
+> is non-empty. **Never neither.**
+
+Generation compiles at successively smaller font sizes (9.6pt down to a 8.8pt
+readability floor) until the document fits. If it never fits, you still get the
+PDF — but `fits` is `false` and `warning` explains that content needs trimming,
+not shrinking. This exists because an earlier hand-built resume silently
+compiled to three pages and shipped before anyone noticed.
+
+It is enforced by a Hypothesis property test over the whole input space, not
+just by the code that implements it.
+
+---
+
+## Quick start
+
+Requires Python 3.10+. **No LaTeX toolchain is needed to install, develop or
+test** — only to produce a real PDF.
+
+```bash
+python tasks.py setup     # install the package and dev/ui extras
+python tasks.py doctor    # report what is installed and what is missing
+python tasks.py test      # the fast suite: no LaTeX required
+python tasks.py dev       # run the API and UI together
+```
+
+Then open <http://localhost:8501> for the UI, or
+<http://127.0.0.1:8000/docs> for the API.
+
+`tasks.py` is a plain-stdlib script and works identically on Windows, macOS and
+Linux. Run `python tasks.py` with no argument to see every task.
+
+### Getting real PDFs
+
+Without a PDF engine the tool still runs end to end, but generated documents
+are **blank placeholders with an accurate page count** — useful for checking
+length, useless for sending. The UI says so, permanently and prominently.
+
+Install **Tectonic** — one self-contained binary, no TeX distribution:
+
+```bash
+winget install TectonicProject.Tectonic   # Windows
+brew install tectonic                      # macOS
+cargo install tectonic                     # anywhere with Rust
+```
+
+Or run the containers, which bake in TeX Live:
+
+```bash
+docker compose -f docker/docker-compose.yml up --build
+```
+
+---
 
 ## Architecture
 
 ```
-backend/
-  app.py              Flask REST API (4 endpoints)
-  matcher.py           JD-to-project keyword scoring
-  resume_builder.py    Assembles resume content from the project bank
-  pdf_compiler.py       Compiles LaTeX -> PDF with automatic page-fit
-  latex_utils.py         LaTeX escaping / display-text conversion
-  templates/
-    resume.tex.j2        Jinja2 LaTeX template (LaTeX-safe delimiters)
-data/
-  project_bank.json    Pre-verified project content (the source of truth)
-frontend/
-  index.html / app.js / style.css   Single-page UI, no build step needed
-tests/
-  59 backend unit tests + 20 Flask API tests = 79 total, all passing
+src/resume_tailor/
+  core/        config (env-driven, validated at startup), structured logging
+               with PII redaction, the error hierarchy
+  domain/      pure logic: models, LaTeX escaping/auditing, JD matching
+  data/        project-bank and profile loading, cached and mtime-invalidated
+  render/      Jinja LaTeX template, PDF engines, the page-fit ladder
+  services/    orchestration -- the one thing the API and the UI both call
+  api/         FastAPI app factory, middleware, versioned v1 routes
+ui/            Streamlit frontend and its dual-mode backend client
+data/          project_bank.json, profile.yaml, and a JSON Schema for the bank
+tests/         unit · property · security · api · ui · integration
 ```
 
-## Setup
+Every layer boundary is a validated pydantic model. Nothing crosses one as a
+raw `dict` — which is what makes a whole class of "unexpected key crashes the
+renderer" failures unrepresentable rather than merely guarded against.
 
-Requires Python 3.9+ and a LaTeX distribution (`pdflatex`, `pdfinfo`).
+### PDF engines
+
+| Engine | When |
+|---|---|
+| `tectonic` | Default. One binary, no TeX distribution. |
+| `pdflatex` | If you already have TeX Live or MiKTeX. Used in the API container. |
+| `fake` | In-process. Emits real, valid, multi-page PDFs whose page count responds to font size, so the entire pipeline is testable with no external binary. |
+
+Selected with `RT_PDF_ENGINE` (`auto` probes in order). `auto` refuses to fall
+back to `fake` when `RT_ENVIRONMENT=prod`, so a blank placeholder can never be
+mistaken for a real resume in a deployment. Page counts are read in-process
+with `pypdf` — no `pdfinfo`, no `poppler-utils`.
+
+---
+
+## API
+
+Interactive docs at `/docs`. Errors are RFC 7807 `application/problem+json`
+with a stable machine-readable `code`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health/live` | Process is up. |
+| GET | `/health/ready` | Bank parses, profile parses, an engine is present. 503 if not. |
+| GET | `/api/v1/meta` | Defaults, limits, font ladder, engine status. |
+| GET | `/api/v1/projects` | List projects. `?include_hidden=true` to inspect hidden ones. |
+| GET | `/api/v1/projects/{key}` | One project, with bullets as display text. |
+| POST | `/api/v1/match` | Rank projects against a JD; report gap terms. |
+| POST | `/api/v1/resume/preview` | Render LaTeX **without compiling**. Works with no engine installed. |
+| POST | `/api/v1/resume/generate` | Compile, with the page-fit guarantee. |
+| GET | `/api/v1/resume/{id}` | Stream the PDF. |
 
 ```bash
-# Install LaTeX if you don't have it:
-#   Ubuntu/Debian: sudo apt install texlive-latex-base texlive-latex-extra poppler-utils
-#   macOS: brew install --cask mactex-no-gui ; brew install poppler
-#   Windows: install MiKTeX, and poppler via conda or a prebuilt binary
-
-pip install -r requirements.txt
-
-# Run tests (recommended before first use, to confirm your environment works):
-python3 -m pytest tests/ -v
-
-# Start the backend:
-cd backend
-python3 app.py
-# Serves on http://localhost:5001
-
-# In a separate terminal, serve the frontend:
-cd frontend
-python3 -m http.server 8080
-# Open http://localhost:8080 in a browser
+curl -X POST http://127.0.0.1:8000/api/v1/resume/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"selected_project_keys":["credit_default","aml_fraud"],"max_pages":2}'
 ```
 
-## API Reference
+**Known limitation, by design.** Matching is literal keyword overlap, not
+semantic — most ATS scanning is literal too, so this mirrors the system it is
+meant to help pass. A project can score zero and still be your strongest one;
+the response says so in its `note` field, and the UI deprioritises zero-score
+projects rather than hiding them.
 
-### `GET /api/health`
-Liveness check. Returns `{"status": "ok"}`.
+---
 
-### `GET /api/projects`
-Lists all projects in the bank (key, display title, domain tags).
+## Editing your content
 
-### `POST /api/match`
-Body: `{"jd_text": "..."}`
-Returns ranked projects by keyword overlap, plus a list of JD terms with
-no match anywhere in the bank (the real gap list).
+**Projects** live in `data/project_bank.json`. Point your editor at
+`data/project_bank.schema.json` for completion and inline validation.
 
-**Known limitation, by design:** this is literal substring matching, not
-semantic matching. A project can score zero and still be worth including
--- e.g. a strong general-purpose project whose JD simply doesn't use its
-specific vocabulary. The `note` field in the response says this
-explicitly; the UI does not auto-exclude zero-score projects, only
-deprioritizes them in the initial checkbox state.
+```json
+{
+  "my_project": {
+    "title": "Project Title -- LaTeX formatted, used verbatim",
+    "github": "owner/repo",
+    "domain": ["fintech"],
+    "keywords": ["python", "xgboost"],
+    "bullets": ["Pre-written, fact-checked, used verbatim."],
+    "hidden": false
+  }
+}
+```
 
-### `POST /api/generate`
-Body: `{"selected_project_keys": [...], "max_pages": 2, "summary": "...", "personal_info": {...}}`
-(`max_pages`, `summary`, `personal_info` are optional.)
+**Everything else** — header, summary, experience, skills, education — lives in
+`data/profile.yaml`. It used to be hardcoded in Python; changing a phone number
+should not be a code edit.
 
-Returns a base64-encoded PDF, the actual page count, which font size in
-the size-ladder was needed to fit, and a `warning` field that is **always
-checked** -- if the content couldn't fit within `max_pages` even at the
-smallest allowed font, `warning` explains why and the PDF returned is
-still the smallest-font attempt (so you have something to look at while
-deciding what to trim).
+Both files are re-read automatically when they change on disk. Both are
+validated on load: a malformed entry fails loudly and specifically, and a
+duplicated JSON key is an error rather than a silently-dropped project.
 
-## Adding a new project to the bank
+Set `"hidden": true` on anything unverified. Hidden projects are excluded from
+listings, from matching, **and from generation** — they cannot reach a resume
+by any path.
 
-Edit `data/project_bank.json`. Each entry needs:
-- `title` (LaTeX-formatted, as it should appear on the resume)
-- `github` (owner/repo, no `https://` prefix -- the template adds that)
-- `domain` (list of lowercase strings, used for matching)
-- `keywords` (list of lowercase strings, used for matching)
-- `bullets` (list of pre-written, LaTeX-formatted strings -- these are
-  used verbatim, so they must already be fact-checked before they go in)
+---
 
-Run `python3 -m pytest tests/test_resume_builder.py -v` after editing to
-confirm the new entry doesn't break anything (malformed entries fail
-loudly at load time, not silently).
-
-## Why some design choices were made the way they were
-
-**Why LaTeX with `\VAR{}` / `\BLOCK{}` instead of Jinja2's default `{{ }}`
-delimiters?** LaTeX itself uses `{` and `}` constantly (`\textbf{...}`).
-Mixing that with Jinja2's default brace-based syntax is a well-known
-source of silent bugs. Non-brace delimiters avoid the collision entirely.
-
-**Why does `pdf_compiler.py` try multiple font sizes instead of just
-picking one?** Earlier iterations of this resume-editing process (see
-project history) shipped at least one resume that silently compiled to
-3 pages before a human caught it visually. Automating the "try
-progressively smaller, verify, stop when it fits" loop -- and *guaranteeing*
-a warning if nothing fits -- was the direct fix for that failure mode.
-
-**Why is there a `latex_to_display_text()` function?** The project bank
-stores LaTeX-formatted strings (for compilation). Early testing showed
-those raw LaTeX escapes (e.g. `\&`) leaking directly into JSON API
-responses meant for human/frontend display. This function converts
-LaTeX-formatted text back to plain text for anywhere it's *read* rather
-than *compiled*.
-
-## Test suite
+## Testing
 
 ```bash
-python3 -m pytest tests/ -v          # all 79 tests
-python3 -m pytest tests/ --cov=backend --cov-report=term-missing   # with coverage
+python tasks.py test       # fast suite, no LaTeX toolchain needed
+python tasks.py test-all   # everything, including real compiles
+python tasks.py cov        # with the 90% coverage gate
+python tasks.py check      # lint + types + coverage (what CI runs)
 ```
 
-Notable regression tests (bugs actually caught during development, not
-hypothetical edge cases):
-- `test_underscore_in_github_field_does_not_break_compilation` -- a raw
-  `_` in a GitHub repo name fatally broke LaTeX compilation (LaTeX reads
-  `_` as a math-mode subscript operator outside math mode).
-- `test_titles_are_clean_display_text_not_raw_latex` -- raw `\&` was
-  leaking into JSON API responses before `latex_to_display_text()` existed.
-- `test_backslash` / `test_no_double_escaping_backslash_then_special` --
-  the LaTeX-escaping function's own backslash-escaping step was getting
-  re-escaped by its own brace-handling step, a classic escaping-order bug.
-- `test_all_projects_selected_either_fits_or_warns_clearly` -- the core
-  safety guarantee: the tool must never silently return a resume that
-  exceeds the page limit.
+| Layer | What it covers |
+|---|---|
+| `unit` | Pure functions: escaping, matching, models, the page-fit ladder. |
+| `property` | Hypothesis invariants — escaping round-trips exactly and always produces safe output; the page-fit guarantee holds for every input. |
+| `security` | A corpus of LaTeX injection, macro-redefinition, expansion-bomb and encoding payloads, driven through the real service and HTTP entry points. |
+| `api` | Full app through `TestClient`: validation, limits, rate limiting, CORS, auth, and an OpenAPI contract snapshot. |
+| `ui` | The real Streamlit script through `AppTest`, including the backend-unreachable path. |
+| `integration` | Real LaTeX compilation. Marked `latex`; skipped automatically when no engine is installed. |
 
-## Known limitations (stated plainly, not hidden)
+The fast suite is the default because the machine this was built on has no TeX
+installed, and a suite that cannot run protects nothing.
 
-1. Keyword matching is literal, not semantic -- documented above.
-2. The project bank's bullet content must be manually updated when you
-   complete a new project; there is no automatic ingestion from a source
-   document (that step still requires the same careful fact-verification
-   this whole project exists to protect).
-3. `flask_cors` is configured wide-open (`CORS(app)`, all origins) --
-   fine for local development, not appropriate if this is ever deployed
-   somewhere reachable over a network. Tighten before doing that.
-4. The Flask dev server (`app.run()`) is explicitly not production-grade
-   (Flask's own startup warning says so). This is a local tool, not
-   something to deploy as-is behind a public URL.
+---
+
+## Configuration
+
+Every setting is an environment variable with an `RT_` prefix; see
+`.env.example` for the full list with defaults. Configuration is validated at
+startup, so a bad value fails immediately with a clear message.
+
+The ones worth knowing:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `RT_PDF_ENGINE` | `auto` | `auto` · `tectonic` · `pdflatex` · `fake` |
+| `RT_UI_MODE` | `http` | `http` (two processes) or `embedded` (single process) |
+| `RT_CORS_ORIGINS` | `http://localhost:8501` | An allowlist. Never `*`. |
+| `RT_API_KEY` | unset | When set, `/api` requires an `X-API-Key` header. |
+| `RT_MAX_CONCURRENT_COMPILES` | `2` | Caps simultaneous TeX processes. |
+| `RT_ENVIRONMENT` | `local` | `prod` enforces a stricter posture. |
+
+## Further reading
+
+- [`docs/PLAN.md`](docs/PLAN.md) — the audit of the previous implementation and
+  the rebuild plan, including the full defect list and the edge-case catalogue.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — why the layers are shaped
+  this way.
+- [`docs/SECURITY.md`](docs/SECURITY.md) — threat model and controls.
+- [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — operating and troubleshooting.

@@ -1,0 +1,38 @@
+# Two services, the real topology: the UI talks to the API over HTTP.
+#
+#   docker compose -f docker/docker-compose.yml up --build
+#   UI  -> http://localhost:8501
+#   API -> http://localhost:8000/docs
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # The UI's browser-visible origin, not the internal service name: CORS is
+      # about where the *page* came from.
+      RT_CORS_ORIGINS: http://localhost:8501
+      RT_LOG_LEVEL: INFO
+      RT_MAX_CONCURRENT_COMPILES: "2"
+    volumes:
+      # Content is mounted, not baked in, so editing project_bank.json takes
+      # effect without a rebuild -- the repository reloads on mtime change.
+      - ../data:/app/data:ro
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    ports:
+      - "127.0.0.1:8501:8501"
+    environment:
+      RT_UI_MODE: http
+      RT_API_BASE_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

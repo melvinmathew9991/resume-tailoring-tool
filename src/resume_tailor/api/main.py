@@ -153,9 +153,7 @@ def _register_error_handlers(app: FastAPI) -> None:
         return _problem(error.status_code, error.to_problem(instance=request.url.path))
 
     @app.exception_handler(StarletteHTTPException)
-    async def handle_http_exception(
-        request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
+    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         error: AppError = (
             NotFoundError(str(exc.detail))
             if exc.status_code == 404

@@ -50,8 +50,7 @@ def select_engine(settings: Settings) -> PdfEngine:
     hints = [status.detail for status in available_engines()]
     if settings.environment == "prod":
         raise EngineUnavailableError(
-            "no real PDF engine is installed and the fake engine is not permitted "
-            "in production",
+            "no real PDF engine is installed and the fake engine is not permitted in production",
             hints=hints,
         )
 

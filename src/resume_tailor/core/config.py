@@ -136,8 +136,7 @@ class Settings(BaseSettings):
                 raise ValueError(f"font_ladder entries must be positive, got ({size}, {spacing})")
             if spacing < size:
                 raise ValueError(
-                    f"line spacing {spacing} is smaller than font size {size}; "
-                    "lines would overlap"
+                    f"line spacing {spacing} is smaller than font size {size}; lines would overlap"
                 )
         sizes = [size for size, _ in ladder]
         if sizes != sorted(sizes, reverse=True):

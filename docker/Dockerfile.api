@@ -1,0 +1,51 @@
+# API image: FastAPI + a real LaTeX toolchain.
+#
+# TeX Live rather than Tectonic here on purpose. Tectonic is the better choice
+# for a developer machine because it is one binary, but it fetches packages
+# from the network on first use -- which a container that may run without
+# egress cannot rely on. A baked-in TeX Live makes the image self-contained
+# and the build reproducible.
+
+FROM python:3.12-slim AS base
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# texlive-latex-extra supplies titlesec and enumitem, which the template uses.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        texlive-latex-base \
+        texlive-latex-recommended \
+        texlive-latex-extra \
+        texlive-fonts-recommended \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Dependency layer first, so editing source does not re-resolve dependencies.
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir .
+
+COPY data/ ./data/
+
+# Run as a non-root user: this process shells out to a document compiler, which
+# is precisely the kind of thing that should not be running as root.
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+ENV RT_ENVIRONMENT=docker \
+    RT_LOG_JSON=true \
+    RT_API_HOST=0.0.0.0 \
+    RT_API_PORT=8000 \
+    RT_PDF_ENGINE=pdflatex \
+    RT_DATA_DIR=/app/data
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://127.0.0.1:8000/health/ready || exit 1
+
+CMD ["uvicorn", "resume_tailor.api.main:app", "--host", "0.0.0.0", "--port", "8000"]

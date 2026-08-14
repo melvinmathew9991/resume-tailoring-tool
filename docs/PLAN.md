@@ -161,7 +161,8 @@ Every layer boundary is a pydantic model. Nothing crosses a boundary as a raw `d
 ```python
 class PdfEngine(Protocol):
     name: str
-    def available(self) -> EngineStatus: ...        # feeds /health/ready
+
+    def available(self) -> EngineStatus: ...  # feeds /health/ready
     def compile(self, tex: str, *, timeout_s: float) -> CompiledPdf: ...
 ```
 
@@ -336,3 +337,85 @@ The first draft of this plan was reviewed against the audit findings. Nine chang
 | D1 | Default PDF engine on the dev box | **Tectonic** — one binary, no 4 GB install, works on Windows today |
 | D2 | UI↔backend coupling | **Dual-mode client**, HTTP default in Docker, in-process for local single-user |
 | D3 | Repo strategy | **Rewrite in place** into `src/`, delete `backend/` and `frontend/` at P4; `git init` first so every phase is a reviewable commit |
+
+All three were confirmed and implemented as recommended.
+
+---
+
+## 9. Outcome
+
+All seven phases are complete. This section records what was actually built and,
+more importantly, where reality differed from the plan — a plan document that
+only records the parts that went as expected is not worth keeping.
+
+### Delivered
+
+| Phase | State |
+|---|---|
+| P0 Foundation | `pyproject.toml`, `src/` package, config, structured logging with PII redaction, error hierarchy, `tasks.py` |
+| P1 Domain | models, `latex.py`, `matching.py`, bank/profile repositories, `profile.yaml`, JSON Schema |
+| P2 Render | template, renderer, four engines, page-fit ladder on `pypdf` |
+| P3 API | FastAPI v1, nine routes, problem+json, middleware stack |
+| P4 UI | Streamlit app, dual-mode client; `backend/` and `frontend/` deleted |
+| P5 Tests | 692 tests, 95% coverage, gates enforced |
+| P6 Ops | two Dockerfiles, compose, CI matrix, README, ARCHITECTURE, SECURITY, RUNBOOK |
+
+Verified locally: `ruff check` clean, `ruff format --check` clean, `mypy --strict`
+clean across 41 files, 692 tests passing in ~36 s with no LaTeX toolchain
+installed. Nine integration tests are skipped locally and run in CI.
+
+### Corrections to the audit in §1.2
+
+**B3 was latent, not active.** The plan says `/api/generate` would put the
+hidden `transformer_scratch` project on a resume. The code path was real, but
+**no project by that key exists in `project_bank.json`** — the exclusion in the
+old API layer referenced a key that had already been removed from the data, and
+the test asserting its absence passed vacuously. The defect was a live bug
+waiting for the next hidden project rather than one currently reachable. The
+fix is unchanged and is now covered by a test with a project that actually
+exists.
+
+### Defects found *during* the rebuild, not in the original audit
+
+Both were caught by tests written against the new code, which is the argument
+for writing them:
+
+1. **Alias double-counting.** The new matcher credited a keyword and its alias
+   separately when both matched the same characters, so a JD saying
+   "machine-learning" scored that project twice for one mention. Fixed by
+   counting distinct match spans rather than summing pattern hits.
+2. **Leading-slash `github` values silently rewritten.** The normaliser stripped
+   slashes from both ends, so the malformed value `/repo` became a valid profile
+   link for a user named "repo" — a wrong URL on a resume rather than a reported
+   error. Now only a trailing slash is absorbed.
+
+### Deviations from the plan
+
+- **`ui` is an installed package.** The plan did not anticipate that Streamlit
+  executes its entrypoint with only the script's own directory on `sys.path`,
+  so `from ui import components` failed. Rather than reintroduce the
+  `sys.path` hack the rewrite exists to remove, `pyproject.toml` now declares
+  two package roots.
+- **The service is built in `create_app`, not in the lifespan handler.** A
+  lifespan-only setup works under uvicorn but silently does not run when a
+  `TestClient` is used without a context manager, turning every route into a
+  confusing `AttributeError`. Construction is free (no I/O until first request),
+  so the trap was removed rather than documented.
+- **The module-level `app` is lazy.** Importing `api.main` used to build an
+  application and probe the filesystem for a TeX binary, emitting a misleading
+  "no PDF engine found" warning during tests that never use it.
+- **`"2"` is accepted for `max_pages`; `true` is not.** A numeric string has
+  exactly one sensible reading, so coercing it is helpful. A boolean does not,
+  which is the whole substance of defect B5.
+
+### Not done, and why
+
+- **Mutation testing** (§5.2) is configured for nightly in the plan but is not
+  wired into CI. The property and security suites already constrain the two
+  modules it would target, and `mutmut` on a Windows development box is
+  unreliable. Left as a follow-up rather than shipped half-working.
+- **A golden-file snapshot of rendered `.tex`** (§5.2) was dropped in favour of
+  structural assertions (`audit_source` returning no warnings, brace balance,
+  ordering). A byte-exact snapshot of a document whose content is expected to
+  be edited regularly would fail on every legitimate content change, which
+  trains people to regenerate it without reading the diff.

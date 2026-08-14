@@ -146,8 +146,7 @@ def main() -> None:
         reset_results(state)
 
     st.caption(
-        f"{len(state.selected_keys)} selected. Order on the resume follows the "
-        "ranking above."
+        f"{len(state.selected_keys)} selected. Order on the resume follows the ranking above."
     )
 
     # -- step 3: options -----------------------------------------------------

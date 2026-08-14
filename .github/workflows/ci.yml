@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"   # nightly: the expensive real-toolchain job
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  # The suite that must stay green everywhere, on every push. No LaTeX
+  # toolchain: the fake PDF engine covers the whole page-fit pipeline, which is
+  # what makes this job fast enough to run on three Python versions and three
+  # operating systems.
+  fast:
+    name: fast (py${{ matrix.python }} · ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest]
+        include:
+          - python: "3.12"
+            os: windows-latest
+          - python: "3.12"
+            os: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -e ".[dev,ui]"
+      - name: Run the fast suite with the coverage gate
+        run: pytest -m "not integration and not latex and not slow" --cov=resume_tailor --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
+        with:
+          name: coverage
+          path: coverage.xml
+
+  lint:
+    name: lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,ui]"
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy
+
+  # Real compilation, on every push. Tectonic is a single binary and installs
+  # in seconds, so there is no excuse for not compiling a real document on each
+  # change -- two of this project's worst historical bugs were only ever
+  # visible in a real compile.
+  latex:
+    name: real compile (tectonic)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,ui]"
+      - name: Install Tectonic
+        run: |
+          curl -fsSL https://drop-sh.fullyjustified.net | sh
+          sudo mv tectonic /usr/local/bin/
+          tectonic --version
+      - run: pytest -m "integration or latex" -v
+
+  # The full TeX Live path, matching the production container. Slower, so it
+  # runs nightly and on tags rather than on every push.
+  texlive:
+    name: real compile (texlive)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install TeX Live
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended
+      - run: pip install -e ".[dev,ui]"
+      - run: pytest -m "integration or latex" -v
+        env:
+          RT_PDF_ENGINE: pdflatex
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f docker/Dockerfile.api -t resume-tailor-api .
+      - run: docker build -f docker/Dockerfile.ui -t resume-tailor-ui .
+      - name: Smoke-test the API image end to end
+        run: |
+          docker run -d --name api -p 8000:8000 resume-tailor-api
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/health/ready; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8000/health/ready | tee /dev/stderr | grep -q '"ready":true'
+          # A real compile inside the image, proving the toolchain is present.
+          curl -fsS -X POST http://127.0.0.1:8000/api/v1/resume/generate \
+            -H 'Content-Type: application/json' \
+            -d '{"selected_project_keys":["credit_default"],"max_pages":2}' \
+            | tee /dev/stderr | grep -q '"engine":"pdflatex"'
+          docker rm -f api

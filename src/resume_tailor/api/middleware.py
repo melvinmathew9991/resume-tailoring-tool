@@ -27,7 +27,9 @@ RequestHandler = Callable[[Request], Awaitable[Response]]
 PROBLEM_CONTENT_TYPE = "application/problem+json"
 
 
-def problem_response(exc: PayloadTooLargeError | RateLimitedError, request: Request) -> JSONResponse:
+def problem_response(
+    exc: PayloadTooLargeError | RateLimitedError, request: Request
+) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_problem(instance=str(request.url.path)),

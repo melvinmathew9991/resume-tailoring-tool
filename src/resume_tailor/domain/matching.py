@@ -39,16 +39,86 @@ DOMAIN_BONUS = 2
 
 STOPWORDS: frozenset[str] = frozenset(
     {
-        "the", "and", "for", "with", "you", "your", "our", "are", "will",
-        "this", "that", "from", "have", "has", "into", "who", "what", "why",
-        "how", "role", "job", "team", "work", "years", "year", "experience",
-        "strong", "skills", "skill", "ability", "including", "such", "etc",
-        "must", "should", "would", "can", "may", "not", "but", "all", "any",
-        "we", "us", "they", "their", "them", "its", "it", "be", "is", "as",
-        "at", "by", "in", "of", "on", "or", "to", "an", "a", "plus", "join",
-        "about", "across", "within", "using", "use", "used", "well", "also",
-        "requirements", "responsibilities", "qualifications", "preferred",
-        "required", "candidate", "candidates", "opportunity", "company",
+        "the",
+        "and",
+        "for",
+        "with",
+        "you",
+        "your",
+        "our",
+        "are",
+        "will",
+        "this",
+        "that",
+        "from",
+        "have",
+        "has",
+        "into",
+        "who",
+        "what",
+        "why",
+        "how",
+        "role",
+        "job",
+        "team",
+        "work",
+        "years",
+        "year",
+        "experience",
+        "strong",
+        "skills",
+        "skill",
+        "ability",
+        "including",
+        "such",
+        "etc",
+        "must",
+        "should",
+        "would",
+        "can",
+        "may",
+        "not",
+        "but",
+        "all",
+        "any",
+        "we",
+        "us",
+        "they",
+        "their",
+        "them",
+        "its",
+        "it",
+        "be",
+        "is",
+        "as",
+        "at",
+        "by",
+        "in",
+        "of",
+        "on",
+        "or",
+        "to",
+        "an",
+        "a",
+        "plus",
+        "join",
+        "about",
+        "across",
+        "within",
+        "using",
+        "use",
+        "used",
+        "well",
+        "also",
+        "requirements",
+        "responsibilities",
+        "qualifications",
+        "preferred",
+        "required",
+        "candidate",
+        "candidates",
+        "opportunity",
+        "company",
     }
 )
 
@@ -78,7 +148,7 @@ ALIASES: dict[str, tuple[str, ...]] = {
 #: Characters that may legitimately appear *inside* a technical token and must
 #: therefore not be treated as a word boundary: ``c++``, ``c#``, ``node.js``,
 #: ``.net``, ``ci/cd``. ``&`` is included so ``R&D`` does not match ``R``.
-_TOKEN_CHARS = r"A-Za-z0-9+#&"
+_TOKEN_CHARS = r"A-Za-z0-9+#&"  # noqa: S105 - a regex character class, not a credential
 
 _WORD_RE = re.compile(r"[a-z0-9][a-z0-9+#.\-/]*")
 
@@ -116,12 +186,21 @@ def normalize(text: str) -> str:
 
 
 def count_matches(haystack: str, keyword: str) -> int:
+    """Occurrences of ``keyword`` (or one of its aliases) in normalised text.
+
+    Counts *distinct spans*, not pattern hits. The keyword pattern already
+    treats internal whitespace as "space, hyphen, underscore or slash", so a
+    keyword like ``machine learning`` and its alias ``machine-learning`` both
+    match the same characters -- summing the two counts scored one mention
+    twice and inflated the project's rank.
+    """
     if not keyword:
         return 0
-    total = len(keyword_pattern(keyword).findall(haystack))
-    for alias in ALIASES.get(keyword.strip().lower(), ()):
-        total += len(keyword_pattern(alias).findall(haystack))
-    return total
+    term = keyword.strip().lower()
+    spans: set[tuple[int, int]] = set()
+    for pattern in (keyword_pattern(term), *(keyword_pattern(a) for a in ALIASES.get(term, ()))):
+        spans.update(match.span() for match in pattern.finditer(haystack))
+    return len(spans)
 
 
 def score_project(jd_text: str, key: str, project: Project) -> MatchResult:
@@ -239,9 +318,7 @@ def find_gap_terms(jd_text: str, bank: ProjectBank, limit: int | None = None) ->
     """JD terms with no counterpart anywhere in the bank -- the real gap list."""
     haystack = build_bank_haystack(bank)
     gaps = [
-        term
-        for term in extract_meaningful_terms(jd_text)
-        if count_matches(haystack, term) == 0
+        term for term in extract_meaningful_terms(jd_text) if count_matches(haystack, term) == 0
     ]
     return gaps[:limit] if limit is not None else gaps
 

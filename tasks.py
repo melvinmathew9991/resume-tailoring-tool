@@ -120,7 +120,15 @@ def task_dev() -> None:
 
 def task_doctor() -> None:
     print(f"python           : {sys.version.split()[0]}  ({PY})")
-    for module in ("fastapi", "pydantic", "streamlit", "pypdf", "structlog", "pytest", "hypothesis"):
+    for module in (
+        "fastapi",
+        "pydantic",
+        "streamlit",
+        "pypdf",
+        "structlog",
+        "pytest",
+        "hypothesis",
+    ):
         try:
             __import__(module)
             print(f"{module:17}: installed")
@@ -162,7 +170,9 @@ TASKS = {
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("task", choices=sorted(TASKS), help="task to run")
     args = parser.parse_args()
     TASKS[args.task]()

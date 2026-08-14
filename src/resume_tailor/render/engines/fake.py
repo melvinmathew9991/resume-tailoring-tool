@@ -39,9 +39,7 @@ def make_pdf(page_count: int, title: str = "resume-tailor fake engine") -> bytes
     objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
     objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {page_count} >>".encode("ascii"))
     for _ in range(page_count):
-        objects.append(
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> >>"
-        )
+        objects.append(b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << >> >>")
 
     out = bytearray(b"%PDF-1.4\n")
     offsets: list[int] = []

@@ -86,7 +86,11 @@ class SubprocessEngine(ABC):
             )
         except (OSError, subprocess.SubprocessError):  # pragma: no cover - environment specific
             return ""
-        return (proc.stdout or proc.stderr).strip().splitlines()[0] if proc.stdout or proc.stderr else ""
+        return (
+            (proc.stdout or proc.stderr).strip().splitlines()[0]
+            if proc.stdout or proc.stderr
+            else ""
+        )
 
     def _subprocess_env(self, workdir: Path) -> dict[str, str]:
         """A deliberately boring environment.
@@ -141,9 +145,7 @@ class SubprocessEngine(ABC):
                     log_tail=_tail(str(exc.output or "")),
                 ) from exc
             except OSError as exc:
-                raise CompilationError(
-                    f"could not run {self.name}: {exc}", log_tail=""
-                ) from exc
+                raise CompilationError(f"could not run {self.name}: {exc}", log_tail="") from exc
 
             log_text = (proc.stdout or "") + (proc.stderr or "")
             pdf_path = workdir / "resume.pdf"

@@ -72,11 +72,13 @@ class Project(StrictModel):
             if cleaned.lower().startswith(prefix):
                 cleaned = cleaned[len(prefix) :]
                 break
-        cleaned = cleaned.strip("/")
+        # Only a *trailing* slash is a formatting variation worth absorbing. A
+        # leading one means the value is malformed, and silently rewriting
+        # "/repo" into the profile link for a user named "repo" would ship a
+        # wrong URL onto a resume rather than reporting the mistake.
+        cleaned = cleaned.rstrip("/")
         if not GITHUB_RE.match(cleaned):
-            raise ValueError(
-                f"github must be 'owner/repo' using [A-Za-z0-9._-], got {value!r}"
-            )
+            raise ValueError(f"github must be 'owner/repo' using [A-Za-z0-9._-], got {value!r}")
         return cleaned
 
     @field_validator("domain", "keywords")
@@ -122,9 +124,7 @@ class ProjectBank(StrictModel):
     def _validate_keys(cls, projects: dict[str, Project]) -> dict[str, Project]:
         for key in projects:
             if not KEY_RE.match(key):
-                raise ValueError(
-                    f"project key {key!r} must be lowercase alphanumeric/underscore"
-                )
+                raise ValueError(f"project key {key!r} must be lowercase alphanumeric/underscore")
         return projects
 
     @classmethod

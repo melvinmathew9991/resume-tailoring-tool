@@ -105,7 +105,7 @@ class ResumeService:
                 "version": bank.version,
                 "warnings": lint_bank(bank),
             }
-        except Exception as exc:  # noqa: BLE001 - readiness reports, never raises
+        except Exception as exc:
             report["ready"] = False
             report["checks"]["project_bank"] = {"ok": False, "error": str(exc)}
 
@@ -115,7 +115,7 @@ class ResumeService:
                 "ok": True,
                 "experience_entries": len(profile.experience),
             }
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             report["ready"] = False
             report["checks"]["profile"] = {"ok": False, "error": str(exc)}
 

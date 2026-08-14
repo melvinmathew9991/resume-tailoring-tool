@@ -100,8 +100,7 @@ def build_context(spec: ResumeSpec, font_size: float, line_spacing: float) -> di
         ],
         "projects": [_project_context(project) for project in spec.projects],
         "skills": [
-            {"name": category.name, "content": category.content}
-            for category in spec.profile.skills
+            {"name": category.name, "content": category.content} for category in spec.profile.skills
         ],
         "education": [
             {

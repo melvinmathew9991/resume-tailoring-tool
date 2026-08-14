@@ -44,7 +44,9 @@ class BackendError(RuntimeError):
     is exactly what the old JavaScript frontend could not do.
     """
 
-    def __init__(self, detail: str, *, code: str = "error", status: int = 0, title: str = "") -> None:
+    def __init__(
+        self, detail: str, *, code: str = "error", status: int = 0, title: str = ""
+    ) -> None:
         super().__init__(detail)
         self.detail = detail
         self.code = code
@@ -76,7 +78,9 @@ class BackendClient(Protocol):
 class HttpBackendClient:
     mode = "http"
 
-    def __init__(self, base_url: str, api_key: str | None = None, timeout: httpx.Timeout | None = None) -> None:
+    def __init__(
+        self, base_url: str, api_key: str | None = None, timeout: httpx.Timeout | None = None
+    ) -> None:
         headers = {"X-API-Key": api_key} if api_key else {}
         self._client = httpx.Client(
             base_url=base_url.rstrip("/"), timeout=timeout or DEFAULT_TIMEOUT, headers=headers

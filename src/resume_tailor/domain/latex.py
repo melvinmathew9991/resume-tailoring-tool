@@ -175,25 +175,78 @@ def latex_to_display_text(text: str | None) -> str:
 ALLOWED_COMMANDS: frozenset[str] = frozenset(
     {
         # document scaffolding
-        "documentclass", "usepackage", "begin", "end", "pagenumbering",
-        "hyphenpenalty", "exhyphenpenalty", "tolerance", "emergencystretch",
-        "titleformat", "titlespacing", "titlerule", "setlist", "setlength",
-        "parskip", "parindent", "raggedright", "raggedbottom",
+        "documentclass",
+        "usepackage",
+        "begin",
+        "end",
+        "pagenumbering",
+        "hyphenpenalty",
+        "exhyphenpenalty",
+        "tolerance",
+        "emergencystretch",
+        "titleformat",
+        "titlespacing",
+        "titlerule",
+        "setlist",
+        "setlength",
+        "parskip",
+        "parindent",
+        "raggedright",
+        "raggedbottom",
         # sizing and weight
-        "fontsize", "selectfont", "normalsize", "small", "footnotesize",
-        "large", "Large", "LARGE", "bfseries", "itshape", "rmfamily",
+        "fontsize",
+        "selectfont",
+        "normalsize",
+        "small",
+        "footnotesize",
+        "large",
+        "Large",
+        "LARGE",
+        "bfseries",
+        "itshape",
+        "rmfamily",
         # inline markup used by the bank
-        "textbf", "textit", "textrm", "textsf", "texttt", "underline", "emph",
+        "textbf",
+        "textit",
+        "textrm",
+        "textsf",
+        "texttt",
+        "underline",
+        "emph",
         # layout
-        "hfill", "vspace", "hspace", "quad", "qquad", "item", "section",
-        "subsection", "newline", "linebreak", "noindent", "centering",
+        "hfill",
+        "vspace",
+        "hspace",
+        "quad",
+        "qquad",
+        "item",
+        "section",
+        "subsection",
+        "newline",
+        "linebreak",
+        "noindent",
+        "centering",
         # links
-        "href", "url", "hidelinks",
+        "href",
+        "url",
+        "hidelinks",
         # escaped specials produced by escape_latex()
-        "textbackslash", "textasciitilde", "textasciicircum",
-        "&", "%", "$", "#", "_", "{", "}",
+        "textbackslash",
+        "textasciitilde",
+        "textasciicircum",
+        "&",
+        "%",
+        "$",
+        "#",
+        "_",
+        "{",
+        "}",
         # ligature/spacing primitives that appear in normal prose
-        "ldots", "dots", "textendash", "textemdash", "\\",
+        "ldots",
+        "dots",
+        "textendash",
+        "textemdash",
+        "\\",
     }
 )
 
@@ -205,14 +258,47 @@ _COMMAND_RE = re.compile(r"\\([A-Za-z]+|.)")
 #: with a sharper message because they indicate an attack rather than a typo.
 DANGEROUS_COMMANDS: frozenset[str] = frozenset(
     {
-        "input", "include", "includeonly", "write", "write18", "openout",
-        "openin", "read", "closeout", "immediate", "special", "shipout",
-        "catcode", "def", "gdef", "edef", "xdef", "let", "futurelet",
-        "csname", "endcsname", "expandafter", "afterassignment", "aftergroup",
-        "loop", "repeat", "batchmode", "scrollmode", "escapechar",
-        "endlinechar", "newcommand", "renewcommand", "providecommand",
-        "newenvironment", "renewenvironment", "lowercase", "uppercase",
-        "InputIfFileExists", "IfFileExists", "directlua", "pdfshellescape",
+        "input",
+        "include",
+        "includeonly",
+        "write",
+        "write18",
+        "openout",
+        "openin",
+        "read",
+        "closeout",
+        "immediate",
+        "special",
+        "shipout",
+        "catcode",
+        "def",
+        "gdef",
+        "edef",
+        "xdef",
+        "let",
+        "futurelet",
+        "csname",
+        "endcsname",
+        "expandafter",
+        "afterassignment",
+        "aftergroup",
+        "loop",
+        "repeat",
+        "batchmode",
+        "scrollmode",
+        "escapechar",
+        "endlinechar",
+        "newcommand",
+        "renewcommand",
+        "providecommand",
+        "newenvironment",
+        "renewenvironment",
+        "lowercase",
+        "uppercase",
+        "InputIfFileExists",
+        "IfFileExists",
+        "directlua",
+        "pdfshellescape",
     }
 )
 
@@ -253,9 +339,7 @@ def find_unescaped_specials(rendered_tex: str) -> list[str]:
                 "as a comment and silently drop it"
             )
         if "&" in stripped:
-            warnings.append(
-                f"line {number}: unescaped '&' -- LaTeX reads this as an alignment tab"
-            )
+            warnings.append(f"line {number}: unescaped '&' -- LaTeX reads this as an alignment tab")
     return warnings
 
 
