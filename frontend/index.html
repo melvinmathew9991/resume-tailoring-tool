@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Resume Tailoring Tool</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Resume Tailoring Tool</h1>
+    <p class="subtitle">Paste a JD, review the keyword match, pick your projects, generate a verified 2-page PDF.</p>
+  </header>
+
+  <main>
+    <section id="step1" class="card">
+      <h2>1. Paste Job Description</h2>
+      <textarea id="jdText" rows="10" placeholder="Paste the full job description here..."></textarea>
+      <button id="matchBtn">Analyze &amp; Match Projects</button>
+      <p id="matchError" class="error"></p>
+    </section>
+
+    <section id="step2" class="card hidden">
+      <h2>2. Select Projects</h2>
+      <p class="note" id="matchNote"></p>
+      <div id="gapTerms" class="gap-terms"></div>
+      <div id="projectList" class="project-list"></div>
+    </section>
+
+    <section id="step3" class="card hidden">
+      <h2>3. Customize (optional)</h2>
+      <label for="summaryText">Summary override (leave blank to use the default):</label>
+      <textarea id="summaryText" rows="4" placeholder="Leave blank to use the default summary..."></textarea>
+
+      <label for="maxPages">Max pages:</label>
+      <input type="number" id="maxPages" value="2" min="1" max="5">
+
+      <button id="generateBtn">Generate Resume PDF</button>
+      <p id="generateError" class="error"></p>
+    </section>
+
+    <section id="step4" class="card hidden">
+      <h2>4. Result</h2>
+      <div id="resultInfo"></div>
+      <a id="downloadLink" class="download-btn hidden" download="resume.pdf">Download PDF</a>
+    </section>
+  </main>
+
+  <footer>
+    <p>All bullet content is pre-verified, hand-written text from the project bank -- this tool selects and formats, it does not generate new claims.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,194 @@
+{
+  "credit_default": {
+    "title": "Credit Default Risk Model -- Independent Validation \\& Fair-Lending Remediation",
+    "github": "melvinmathew9991/credit-default-risk-model-audit",
+    "domain": ["fintech", "credit risk", "lending", "bfsi", "banking", "financial services"],
+    "keywords": ["credit risk", "credit default", "fair lending", "ecoa", "reg b", "model governance",
+      "leakage detection", "shap", "explainability", "calibration", "isotonic calibration",
+      "drift monitoring", "psi", "lightgbm", "logistic regression", "woe", "scorecard",
+      "model risk", "adverse action", "responsible ai", "fairness auditing", "bias testing",
+      "probability of default", "auc", "gini", "ci/cd", "automated testing", "governance"],
+    "bullets": [
+      "Took delivery of a LightGBM credit-default model reporting \\textbf{0.9636 AUC}, reproduced it to 15 decimal places, then proved by counterfactual that \\textbf{85\\% of its performance was leakage} -- five features describing repayment on the loan being scored.",
+      "Rebuilt under a \\textbf{governance policy enforced in code} -- excluding gender, marital status, and pincode as prohibited bases under \\textbf{ECOA/Reg B} -- with the remediated model scoring a defensible \\textbf{Gini 0.2914} on a hold-out touched exactly once.",
+      "Measured the cost of each governance decision separately: fair-lending compliance was free (Gini changed by +0.0013), while leakage removal accounted for 96\\% of the total performance drop.",
+      "Shipped as a decision system: \\textbf{isotonic calibration}, \\textbf{SHAP-based} adverse-action reason codes, a WOE logistic-regression challenger, production \\textbf{drift monitoring (PSI)}, backed by 243 automated tests and CI."
+    ]
+  },
+  "aml_fraud": {
+    "title": "AML Fraud Detection Pipeline (DuckDB, Optuna, MLflow, FastAPI, Docker, CI/CD)",
+    "github": "melvinmathew9991/aml-fraud-detection-pipeline",
+    "domain": ["fintech", "fraud", "banking", "financial services", "bfsi", "anomaly detection"],
+    "keywords": ["fraud detection", "anomaly detection", "aml", "duckdb", "optuna", "mlflow",
+      "hyperparameter optimization", "fastapi", "docker", "ci/cd", "xgboost", "lightgbm",
+      "class imbalance", "pr-auc", "capacity-based recall", "model deployment", "sql",
+      "production stability", "memory optimization", "cross-validation", "api", "scalability"],
+    "bullets": [
+      "Built an end-to-end \\textbf{fraud/anomaly-detection system} (Python, \\textbf{DuckDB}, Scikit-learn) on \\textbf{6.36 million real} PaySim mobile-money transactions (0.13\\% fraud rate), running \\textbf{3-fold time-based cross-validation} across 8 models with \\textbf{Optuna}-based hyperparameter optimization and \\textbf{MLflow} tracking -- best model (LightGBM) reaching \\textbf{PR-AUC 0.997}.",
+      "Replaced label-derived evaluation with a \\textbf{capacity-based operating point} to set a deployable threshold before ground truth exists -- \\textbf{250 reviews/day yields 95.1\\% recall at zero false positives}.",
+      "Diagnosed and fixed a \\textbf{production-stability bug} crashing an 8GB machine on full-dataset runs, rewriting the aggregation as a \\textbf{DuckDB SQL window function} and cutting peak memory from a multi-GB spike to \\textbf{1.4GB}.",
+      "Backed the system with a \\textbf{182-test automated suite} and shipped a \\textbf{FastAPI} scoring service and \\textbf{Docker}-containerized image behind a green \\textbf{3-job CI/CD} gate."
+    ]
+  },
+  "nectar_iot": {
+    "title": "Nectar IoT Analytics Platform -- Predictive Maintenance \\& Prognostics",
+    "github": "melvinmathew9991/nectar-intelligent-facilities-platform",
+    "domain": ["iot", "manufacturing", "industrial", "facilities", "engineering", "predictive maintenance"],
+    "keywords": ["predictive maintenance", "iot", "sensor telemetry", "failure prediction",
+      "anomaly detection", "isolation forest", "cusum", "vibration", "iso 10816", "prognostics",
+      "graph analytics", "networkx", "xgboost", "random forest", "fastapi", "data pipeline",
+      "reproducibility", "engineering data analytics", "asset management"],
+    "bullets": [
+      "Took \\textbf{complete ownership} of an end-to-end \\textbf{predictive maintenance and prognostics} pipeline (Python, Scikit-learn, \\textbf{XGBoost}) on \\textbf{1.96 million rows of physics-grounded multivariate sensor telemetry} across 151 interconnected equipment assets (chillers, AHUs, pumps), built on a custom signal generator modeling \\textbf{per-asset-type fault archetypes} and \\textbf{ISO 10816-consistent vibration bands}.",
+      "Identified and validated a forward-looking vibration signal (1.48x baseline) preceding equipment faults as a leading prognostic indicator, correcting two earlier flawed versions of the same measurement found via self-audit.",
+      "Built a \\textbf{multi-method anomaly-detection module} (statistical thresholds, Isolation Forest, CUSUM change-point detection) alongside \\textbf{24-hour-ahead failure prediction} (Precision 0.90, Recall 0.75), plus a graph-based (\\textbf{NetworkX}) connectivity analysis.",
+      "Designed a \\textbf{single, shared, modular data pipeline} reused across the pipeline, dashboard, and API, backed by \\textbf{55 automated tests}."
+    ]
+  },
+  "marketing_mix": {
+    "title": "Marketing Mix Model -- Real Retail Data, Honestly Scored",
+    "github": "melvinmathew9991/marketing-mix-model-validation",
+    "domain": ["marketing", "retail", "advertising", "cpg", "media analytics"],
+    "keywords": ["marketing mix modeling", "mmm", "media effectiveness", "causal inference",
+      "difference-in-differences", "rolling-origin cross-validation", "nested cross-validation",
+      "vif", "multicollinearity", "budget optimization", "forensic data verification",
+      "statistical rigor", "minimum detectable effect", "geo experiment", "a/b test",
+      "hypothesis testing", "statistics", "probability"],
+    "bullets": [
+      "Audited and rebuilt an inherited MMM pipeline onto \\textbf{real weekly retail data} (209 weeks, 10 channels, \\$490.9M spend, plus a 26-division geo panel), finding its \"multicollinearity\" thesis was manufactured by its own synthetic generator -- real \\textbf{VIF stays below 4} versus a claimed 8--13.",
+      "Reached and defended a \\textbf{negative result} -- media spend does not improve out-of-sample prediction -- via \\textbf{rolling-origin and nested evaluation} on data untouched by tuning, which strengthened the finding rather than softening it.",
+      "Found and fixed \\textbf{two arithmetic bugs} in the inherited geo-experiment estimator; derived a \\textbf{12.0\\% minimum detectable effect} and confirmed unbiased recovery of injected lifts.",
+      "\\textbf{Forensically verified} the data's authenticity against Federal Reserve series (r=0.9967); shipped as a tested (64 tests), CI-backed package with an optimizer that refuses to output a recommendation when statistically unstable."
+    ]
+  },
+  "medbot": {
+    "title": "MEDBOT -- Knowledge-Grounded Medical RAG Assistant (Gen AI / LLM)",
+    "github": "melvinmathew9991/Medical_RAG_Chatbot",
+    "domain": ["healthcare", "genai", "llm", "nlp"],
+    "keywords": ["rag", "retrieval augmented generation", "langchain", "google gemini", "faiss",
+      "vector database", "embeddings", "prompt engineering", "few-shot", "chain of thought",
+      "llm evaluation", "groundedness", "generative ai", "genai", "knowledge grounded qa",
+      "ci/cd", "streamlit", "evaluation harness", "large language models", "agentic"],
+    "bullets": [
+      "Designed and built a \\textbf{GenAI/RAG application} (Python, \\textbf{LangChain}, \\textbf{Google Gemini}, local \\textbf{fastembed} embeddings, \\textbf{FAISS} -- 1,225/1,225 indexed chunks) for knowledge-grounded medical question-answering, migrating off a paid OpenAI dependency onto a fully free-tier stack.",
+      "Fixed \\textbf{three real bugs} surfaced by end-to-end testing: a PubMed TLS interception issue, a Wikipedia 403 error, and a SerpAPI exception-handling bug where a bad API key silently discarded all three external sources instead of just the failing one.",
+      "Applied and evaluated \\textbf{Chain-of-Thought prompting} via a structured \\textbf{A/B test with an ablation study}, alongside a 27-example \\textbf{few-shot prompt template} with semantic-similarity example selection.",
+      "Built a genuine \\textbf{evaluation harness} -- not qualitative spot-checks -- measuring retrieval \\textbf{Precision@4 (0.83)} and generation \\textbf{groundedness (0.83)} against a 24-question test set, using it to discover a corpus-coverage gap and a reproducible false-refusal bug invisible to code review.",
+      "Shipped behind a \\textbf{CI/CD} pipeline with an index-integrity gate, deployed via \\textbf{Streamlit} in a containerized (Dev Containers) reproducible environment."
+    ]
+  },
+  "clinical_emr": {
+    "title": "Clinical EMR SQL Pipeline \\& Mortality Prediction (MIMIC-III)",
+    "github": "melvinmathew9991/emr-sql-pipeline",
+    "domain": ["healthcare", "clinical", "emr"],
+    "keywords": ["sql", "healthcare data", "clinical data", "mimic-iii", "window functions", "cte",
+      "data leakage", "random forest", "cross-validation", "de-identified data", "query optimization",
+      "explain query plan", "readmission", "healthcare analytics", "advanced sql"],
+    "bullets": [
+      "Built a \\textbf{SQL-first analytics pipeline} on real, de-identified MIMIC-III ICU patient records (100 patients, 129 admissions), loading a 6-table relational schema into SQLite and querying it directly rather than pre-flattening the data.",
+      "Extended the SQL layer with \\textbf{window functions} (\\textbf{ROW\\_NUMBER, LAG}) to sequence each patient's repeat admissions, surfacing that 11 of 29 repeat admissions fall within a 30-day readmission window.",
+      "Identified and fixed \\textbf{target and patient-level leakage} in an initial model, replacing a single-split evaluation with a tuned \\textbf{Random Forest} via patient-grouped 5-fold cross-validation (\\textbf{ROC-AUC 0.606}).",
+      "Backed the pipeline with a \\textbf{19-test automated suite} on GitHub Actions CI, including a regression guard against leaky features reappearing."
+    ]
+  },
+  "tech_vendor": {
+    "title": "Tech Vendor Market Share \\& Growth Analysis (Excel)",
+    "github": "melvinmathew9991/vendor-market-analysis",
+    "domain": ["market research", "competitive intelligence", "technology", "business analysis"],
+    "keywords": ["excel", "advanced excel", "vlookup", "index match", "sumifs", "data verification",
+      "competitive intelligence", "market share analysis", "financial data verification",
+      "sec filings", "data audit", "pivot tables"],
+    "bullets": [
+      "Built a \\textbf{7-tab Excel competitive-intelligence model} (424 formulas, fact/dimension design) tracking quarterly revenue, growth, and market share for 5 major cloud vendors, using \\textbf{INDEX/MATCH, VLOOKUP, SUMIFS, COUNT, and data validation}.",
+      "Audited an existing analysis end-to-end, independently recomputing every insight against underlying formulas and identifying/correcting a factual error in a market-share claim before it reached a stakeholder.",
+      "Sourced and verified \\textbf{40 data points against real primary-source SEC filings and earnings releases}, catching and correcting 2 numeric errors and identifying one vendor whose figures could not be substantiated."
+    ]
+  },
+  "powerco": {
+    "title": "PowerCo Customer Churn \\& Pricing Strategy Analysis (BCG X Job Simulation)",
+    "github": "melvinmathew9991/BCGX_Project",
+    "domain": ["consulting", "energy", "utilities", "customer analytics"],
+    "keywords": ["customer churn", "consulting", "hypothesis testing", "random forest", "pricing strategy",
+      "client engagement", "business strategy", "cost-benefit analysis", "customer segmentation",
+      "stakeholder communication", "executive summary"],
+    "bullets": [
+      "Took \\textbf{complete ownership} of a client engagement for an energy-sector client -- design, feature engineering, hypothesis testing, modelling, and evaluation -- to test the hypothesis that pricing was the dominant driver of SME customer churn (\\textbf{14,606 customers}).",
+      "Built a \\textbf{Random Forest} classification model, interpreting findings to overturn the client's original hypothesis -- identifying consumption and net margin, not pricing, as the true dominant drivers.",
+      "Delivered a client-facing Executive Summary, presenting a cost-justified, revenue-conscious business-strategy recommendation -- translating model output into quantified business impact."
+    ]
+  },
+  "movie_recommender": {
+    "title": "Movie Recommender System -- Collaborative Filtering with MLOps Scaffolding",
+    "github": "melvinmathew9991/movie-recommender",
+    "domain": ["recommendation systems", "consumer tech", "e-commerce", "media"],
+    "keywords": ["collaborative filtering", "matrix factorization", "recommendation system",
+      "mlflow", "permutation test", "popularity bias", "evaluation harness", "fastapi",
+      "mlops", "algorithm implementation"],
+    "bullets": [
+      "Built a \\textbf{collaborative-filtering recommender}, implementing \\textbf{matrix factorization from scratch} (NumPy, gradient descent) on real \\textbf{MovieLens 100K} data, with leakage-safe per-user chronological splitting and hyperparameters tracked in \\textbf{MLflow}.",
+      "Built a dual-family \\textbf{evaluation harness} (RMSE/MAE vs. constant-predictor, Precision@10/Recall@10 vs. random reference) plus a \\textbf{popularity-bias audit} testing whether personalization was genuinely happening.",
+      "Self-audit caught an earlier version's \"5x better than baseline\" claim was measuring pure noise (permutation test z=-2.59); fixed on real data and published an honest tied result vs. the popularity baseline. Shipped via \\textbf{FastAPI}, Streamlit, Docker, and CI."
+    ]
+  },
+  "nifty_arima": {
+    "title": "NIFTY 50 ARIMA/GARCH Forecasting \\& Model Audit (R + Python)",
+    "github": "melvinmathew9991/Forecasting-using-ARIMA",
+    "domain": ["finance", "financial markets", "trading"],
+    "keywords": ["arima", "garch", "time series forecasting", "r", "financial forecasting",
+      "volatility clustering", "rolling-origin cross-validation", "coefficient significance testing",
+      "ljung-box", "risk quantification", "statistical modeling"],
+    "bullets": [
+      "Reproduced a published \\textbf{ARIMA(6,1,6)} time-series model for the NIFTY 50 index (263 weekly observations, 2017--2022) in \\textbf{R and Python}, then self-audited it via coefficient-significance testing and Ljung-Box diagnostics -- finding 92\\% of coefficients statistically insignificant.",
+      "Designed a \\textbf{rolling-origin cross-validation} framework across 87 expanding-window origins to benchmark ARIMA, auto-ARIMA, ETS, and random-walk candidates against a live financial time series.",
+      "Extended the analysis to \\textbf{volatility forecasting} with a GARCH(1,1) model, confirming genuine, statistically significant \\textbf{volatility clustering}."
+    ]
+  },
+  "hidani_tech": {
+    "title": "Hidani Tech -- Data Analyst Technical Assessment",
+    "github": "melvinmathew9991/Hidani-Tech-Data-Analyst-Assessment",
+    "domain": ["sales analytics", "business analytics", "e-commerce", "data analysis"],
+    "keywords": ["data analyst", "conversion rate", "funnel analysis", "data quality", "streamlit",
+      "dashboard", "playwright", "data cleaning", "business questions"],
+    "bullets": [
+      "Built an end-to-end Python analytics pipeline on a real 1,000-row sales/lead dataset -- cleaning inconsistent date formats and resolving \\textbf{285 missing Associate/Team-Lead names} -- to answer 9 stakeholder-defined business questions covering \\textbf{conversion rates, funnel analysis, and revenue trends}.",
+      "Caught a \\textbf{payment-status data-quality issue}: the obvious \"overdue\" definition returned 702 near-meaningless cases; redefined it to cut it to \\textbf{21 genuinely actionable cases}.",
+      "\\textbf{Self-audited} the finished notebook and dashboard, catching 4 additional bugs on re-review, and \\textbf{verified the dashboard live} using headless browser automation (Playwright) before delivery."
+    ]
+  },
+  "bike_taxi": {
+    "title": "Bike Taxi Demand Forecasting -- Data Governance, Clustering \\& Scaled Pipeline",
+    "github": "melvinmathew9991/Bike-Taxi-Rides-Request-Demand-Forecast",
+    "domain": ["mobility", "transportation", "urban analytics"],
+    "keywords": ["demand forecasting", "clustering", "kmeans", "data governance", "dpdp act",
+      "data privacy", "xgboost", "random forest", "geospatial analysis", "time series features"],
+    "bullets": [
+      "Built an end-to-end, scalable Python pipeline processing \\textbf{878,400 observations} from ~8.4 million raw multi-source booking records, from raw ingestion through feature engineering to a stakeholder-facing dashboard.",
+      "Authored a \\textbf{data-governance document} mapping the pipeline's personal-data boundary to \\textbf{India's DPDP Act 2023} and enforcing it in code -- real data-privacy standards applied in practice.",
+      "Applied unsupervised \\textbf{KMeans clustering} for geospatial demand segmentation across 50 regions, then compared Linear Regression, Random Forest, and XGBoost via cross-validation."
+    ]
+  },
+  "vaccination_nlp": {
+    "title": "Vaccination Tweet Sentiment Analysis (NLP)",
+    "github": "melvinmathew9991",
+    "domain": ["nlp", "social media analytics", "public health", "market research"],
+    "keywords": ["nlp", "sentiment analysis", "tf-idf", "text classification", "logistic regression",
+      "linearsvc", "gridsearchcv", "data leakage", "negation handling", "social media data"],
+    "bullets": [
+      "Audited an inherited \\textbf{NLP sentiment-classification} pipeline (11,020 real tweets, \\textbf{TF-IDF}, Logistic Regression/LinearSVC via GridSearchCV) that \"looked done\" at 87\\% accuracy, and found it was not actually trustworthy.",
+      "Found and fixed a \\textbf{negation-handling bug} where standard stopword removal deleted \"not/no/nor\" before sentiment scoring, silently flipping negated tweets' polarity.",
+      "Diagnosed and fixed a \\textbf{data-leakage bug} -- the TF-IDF vectorizer had been fit on the full dataset before the train/test split -- improving negative-sentiment recall from 38\\% to \\textbf{51\\%}."
+    ]
+  },
+  "call_center_dl": {
+    "title": "Deep Learning Call Center Forecasting (MLP, CNN, LSTM, CNN-LSTM)",
+    "github": "melvinmathew9991",
+    "domain": ["deep learning", "forecasting", "healthcare operations"],
+    "keywords": ["deep learning", "tensorflow", "keras", "mlp", "cnn", "lstm", "cnn-lstm",
+      "time series", "neural networks", "model comparison", "root cause analysis"],
+    "bullets": [
+      "Built and benchmarked \\textbf{4 deep learning architectures} (\\textbf{MLP, CNN, LSTM, CNN-LSTM}) in \\textbf{TensorFlow/Keras} to forecast monthly healthcare call-center volume from 11 years of historical data, using lagged-window feature engineering and chronological splitting to prevent data leakage.",
+      "Evaluated all models on MAE, RMSE, and MAPE, finding that simpler feedforward architectures (MLP, CNN) outperformed recurrent ones at this data scale -- MLP achieved the best RMSE (0.15) -- and diagnosed training-set size as the root cause rather than accepting the counter-intuitive result at face value.",
+      "Verified the finding was real, not an artifact, by rerunning the full pipeline from a clean state twice and confirming bit-for-bit identical results both times."
+    ]
+  }
+}

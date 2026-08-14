@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+*.aux
+*.log
+*.out
+*.tex
+!templates/*.tex.j2
+.venv/
+venv/
+*.pdf
+!sample_output.pdf
+.DS_Store
