@@ -83,7 +83,7 @@ markers = [
 [tool.coverage.run]
 source = ["resume_tailor"]
 branch = true
-omit = ["*/engines/pdflatex.py", "*/engines/tectonic.py"]
+omit = []
 
 [tool.coverage.report]
 precision = 1
@@ -104,10 +104,16 @@ exclude_lines = [
 # rather than an exception, so "the tests executed this line" is a much weaker
 # claim there than "the tests would fail if this line were wrong".
 # ---------------------------------------------------------------------------
+# The runner names its test files explicitly. Without paths, pytest falls back
+# to `testpaths = ["tests"]` above and runs the entire suite -- api, ui,
+# streamlit startup, hypothesis -- once per mutant. With hundreds of mutants
+# that is hours of compute to learn something about two pure modules. These
+# four targets are the ones that actually constrain domain/, and `-x` stops
+# each run at the first failure, which is all a mutant needs to be killed.
 [tool.mutmut]
 paths_to_mutate = ["src/resume_tailor/domain/"]
-tests_dir = ["tests/unit/", "tests/property/", "tests/security/"]
-runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider -m 'not latex and not slow'"
+tests_dir = ["tests/unit/", "tests/security/"]
+runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider tests/unit/test_latex.py tests/unit/test_matching.py tests/unit/test_models.py tests/security/test_injection.py"
 
 # ---------------------------------------------------------------------------
 # ruff

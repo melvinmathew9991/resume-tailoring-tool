@@ -134,6 +134,11 @@ jobs:
     name: mutation (domain)
     runs-on: ubuntu-latest
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # A hard ceiling, because mutation testing has no natural one: cost scales
+    # with mutants x test-suite runtime, and a careless config can burn an
+    # afternoon of Actions minutes before anyone notices. If this job hits the
+    # limit, the config is wrong -- narrow the scope rather than raise the cap.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

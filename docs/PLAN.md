@@ -421,9 +421,18 @@ been skipped. On their first real run, **seven of the nine failed.**
    there is now a test asserting exactly that.
 
    Worth noting *why* it survived: the fast suite uses `FakeEngine`, which
-   never builds a subprocess environment, and `render/engines/tectonic.py` is
+   never builds a subprocess environment, and `render/engines/tectonic.py` was
    in the coverage `omit` list. The defect sat in the seam between the two
-   things the test estate deliberately does not look at.
+   things the test estate deliberately did not look at.
+
+   The `omit` list has since been emptied, and the interesting part is what
+   that revealed: **both engine modules were already at 100% coverage** from
+   the fast suite. The exclusion was not protecting an untestable file, it was
+   hiding a fully-tested one — and in doing so it removed the signal that would
+   have shown `_subprocess_env` had no assertions behind it. An `omit` entry
+   added for a plausible reason ("you cannot run this without the binary")
+   outlived that reason and became a blind spot. Total coverage was unchanged
+   at 97.3% after removing it.
 
 4. **The documented Windows install command did not exist.** The README,
    `tasks.py doctor`, the UI's no-engine warning and the engine's own
