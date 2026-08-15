@@ -81,6 +81,17 @@ jobs:
           curl -fsSL https://drop-sh.fullyjustified.net | sh
           sudo mv tectonic /usr/local/bin/
           tectonic --version
+      # Tectonic downloads its package bundle on first use. On a cold runner
+      # that download lands inside the first test's compile timeout and blows
+      # it -- the failure looks like a hang, not a missing cache. Warming it
+      # here also means an install problem fails on this step, with tectonic's
+      # own error, rather than as an opaque timeout inside pytest.
+      - name: Warm the Tectonic package cache
+        run: |
+          mkdir -p /tmp/warm && cd /tmp/warm
+          printf '\\documentclass{article}\\begin{document}warm\\end{document}\n' > warm.tex
+          time tectonic --untrusted --chatter minimal warm.tex
+          test -f warm.pdf
       - run: pytest -m "integration or latex" -v
 
   # The full TeX Live path, matching the production container. Slower, so it

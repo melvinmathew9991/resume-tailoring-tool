@@ -45,7 +45,13 @@ def real_engine_service(settings: Settings) -> ResumeService:
     assert ENGINE_NAME is not None
     from resume_tailor.render.engines.registry import select_engine
 
-    live = settings.model_copy(update={"pdf_engine": ENGINE_NAME})
+    # The shared `settings` fixture allows 10s, which is generous for the fake
+    # engine and not enough for a real one on a cold cache: Tectonic downloads
+    # its package bundle on first use, and a full TeX Live pdflatex run is not
+    # instant either. CI warms the cache first, but a developer's first local
+    # run does not -- and "your first ever real compile times out" is a bad
+    # introduction to a tool that works fine.
+    live = settings.model_copy(update={"pdf_engine": ENGINE_NAME, "compile_timeout_s": 180.0})
     return ResumeService(
         settings=live,
         bank_repo=BankRepository(live.bank_path),
@@ -120,7 +126,9 @@ class TestRealProductionContent:
         """The content that will really be sent to employers must compile."""
         from resume_tailor.render.engines.registry import select_engine
 
-        live = real_settings.model_copy(update={"pdf_engine": ENGINE_NAME})
+        live = real_settings.model_copy(
+            update={"pdf_engine": ENGINE_NAME, "compile_timeout_s": 180.0}
+        )
         service = ResumeService(
             settings=live,
             bank_repo=BankRepository(live.bank_path),

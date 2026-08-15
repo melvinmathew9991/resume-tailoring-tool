@@ -153,3 +153,17 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["streamlit.*", "pypdf.*"]
 ignore_missing_imports = true
+
+# Transitive dependencies of streamlit that ship their own type stubs, so mypy
+# follows into them and type-checks third-party code we do not import directly.
+#
+# That is not just wasted work, it is a portability trap: `python_version` here
+# is 3.10 (the floor this project supports), while CI installs whatever numpy
+# matches the runner's interpreter. On Python 3.12 that is a numpy whose stubs
+# use `type` statements, which are 3.12-only syntax -- so mypy parsed them
+# under 3.10 rules and failed with a syntax error in a file nobody here wrote.
+# Skipping the follow keeps the check about this codebase.
+[[tool.mypy.overrides]]
+module = ["numpy.*", "pandas.*", "pyarrow.*", "altair.*"]
+follow_imports = "skip"
+ignore_missing_imports = true

@@ -16,6 +16,7 @@ import secrets
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from resume_tailor.core.errors import NotFoundError
@@ -33,9 +34,24 @@ class StoredDocument:
 class DocumentStore:
     """Thread-safe bounded TTL cache of generated PDFs."""
 
-    def __init__(self, ttl_s: int = 900, max_documents: int = 32) -> None:
+    def __init__(
+        self,
+        ttl_s: int = 900,
+        max_documents: int = 32,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """``clock`` is injectable so expiry can be tested without sleeping.
+
+        The alternative -- store, ``sleep``, assert gone -- looks fine and is
+        not: it assumes the monotonic clock ticks within the sleep. Windows'
+        default timer granularity is ~15.6ms, so a 10ms sleep can leave
+        ``monotonic()`` unchanged and the document unexpired. That test passed
+        locally and failed on the Windows CI runner, which is the worst way to
+        find out.
+        """
         self._ttl_s = ttl_s
         self._max = max_documents
+        self._clock = clock
         self._lock = threading.Lock()
         self._items: OrderedDict[str, StoredDocument] = OrderedDict()
 
@@ -45,7 +61,7 @@ class DocumentStore:
             pdf_bytes=pdf_bytes,
             filename=filename,
             page_count=page_count,
-            created_at=time.monotonic(),
+            created_at=self._clock(),
         )
         with self._lock:
             self._evict_expired()
@@ -66,7 +82,7 @@ class DocumentStore:
         return document
 
     def _evict_expired(self) -> None:
-        cutoff = time.monotonic() - self._ttl_s
+        cutoff = self._clock() - self._ttl_s
         expired = [key for key, item in self._items.items() if item.created_at < cutoff]
         for key in expired:
             del self._items[key]

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 import pytest
 from pydantic import ValidationError
 
@@ -157,11 +155,31 @@ class TestDocumentStore:
             DocumentStore().get("nope")
 
     def test_expired_documents_are_evicted(self) -> None:
-        store = DocumentStore(ttl_s=0)
+        """Driven by an injected clock, not by sleeping.
+
+        The previous version slept 10ms against ``ttl_s=0`` and assumed the
+        monotonic clock had advanced. On the Windows CI runner it had not
+        (~15.6ms default timer granularity), so the document was still live and
+        the test failed there while passing everywhere else.
+        """
+        now = 1000.0
+        store = DocumentStore(ttl_s=60, clock=lambda: now)
         stored = store.put(b"%PDF", "a.pdf", 1)
-        time.sleep(0.01)
+
+        assert store.get(stored.document_id).document_id == stored.document_id
+
+        now += 61.0
         with pytest.raises(NotFoundError):
             store.get(stored.document_id)
+
+    def test_documents_survive_right_up_to_the_ttl(self) -> None:
+        """The boundary is the half of this worth getting wrong quietly."""
+        now = 1000.0
+        store = DocumentStore(ttl_s=60, clock=lambda: now)
+        stored = store.put(b"%PDF", "a.pdf", 1)
+
+        now += 59.9
+        assert store.get(stored.document_id).page_count == 1
 
     def test_oldest_is_evicted_when_full(self) -> None:
         store = DocumentStore(max_documents=2)
