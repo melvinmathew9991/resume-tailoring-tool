@@ -110,9 +110,16 @@ exclude_lines = [
 # that is hours of compute to learn something about two pure modules. These
 # four targets are the ones that actually constrain domain/, and `-x` stops
 # each run at the first failure, which is all a mutant needs to be killed.
+#
+# `also_copy` is required, not optional: mutmut runs the suite from a `mutants/`
+# copy of the project, and `tests/conftest.py` resolves the real project bank
+# relative to the repository root. Without the data directory in that copy,
+# every mutant run dies collecting `real_bank` with a BankError -- which mutmut
+# reports as "failed to collect stats", not as a missing file.
 [tool.mutmut]
 paths_to_mutate = ["src/resume_tailor/domain/"]
 tests_dir = ["tests/unit/", "tests/security/"]
+also_copy = ["data/"]
 runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider tests/unit/test_latex.py tests/unit/test_matching.py tests/unit/test_models.py tests/security/test_injection.py"
 
 # ---------------------------------------------------------------------------

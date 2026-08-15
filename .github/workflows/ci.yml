@@ -87,16 +87,44 @@ jobs:
           curl -fsSL https://drop-sh.fullyjustified.net | sh
           sudo mv tectonic /usr/local/bin/
           tectonic --version
-      # Tectonic downloads its package bundle on first use. On a cold runner
-      # that download lands inside the first test's compile timeout and blows
-      # it -- the failure looks like a hang, not a missing cache. Warming it
-      # here also means an install problem fails on this step, with tectonic's
-      # own error, rather than as an opaque timeout inside pytest.
-      - name: Warm the Tectonic package cache
+      # Tectonic fetches TeX packages on demand. On a cold runner those fetches
+      # land inside the first test's compile and fail it -- so warm the cache
+      # first, and warm it with the *real* rendered template.
+      #
+      # A toy \documentclass{article} is not good enough: it caches only what
+      # that document needs, leaving cmap, geometry, hyperref, titlesec and the
+      # rest to be fetched during the first real compile. That is exactly what
+      # happened -- the first two integration tests failed with "produced no
+      # PDF (exit code 1)" while tests 3-9, running against a by-then-populated
+      # cache, all passed.
+      #
+      # Rendering through the project also means a template that cannot compile
+      # fails here, attributed, rather than as an opaque error inside pytest.
+      - name: Warm the Tectonic package cache with the real template
         run: |
-          mkdir -p /tmp/warm && cd /tmp/warm
-          printf '\\documentclass{article}\\begin{document}warm\\end{document}\n' > warm.tex
-          time tectonic --untrusted --chatter minimal warm.tex
+          mkdir -p /tmp/warm
+          python - <<'PY' > /tmp/warm/warm.tex
+          from resume_tailor.core.config import Settings
+          from resume_tailor.data.bank_repo import BankRepository
+          from resume_tailor.data.profile_repo import ProfileRepository
+          from resume_tailor.render.engines.fake import FakeEngine
+          from resume_tailor.services.resume_service import ResumeService
+
+          s = Settings(pdf_engine="fake")
+          svc = ResumeService(
+              settings=s,
+              bank_repo=BankRepository(s.bank_path),
+              profile_repo=ProfileRepository(s.profile_path),
+              engine=FakeEngine(),
+          )
+          keys = list(svc.bank().visible())[:4]
+          print(svc.render_preview(svc.build_spec(keys, max_pages=2))[0])
+          PY
+          cd /tmp/warm
+          # Two attempts: the bundle CDN is a network dependency, and a single
+          # transient fetch failure should not redden the whole run.
+          time tectonic --untrusted --chatter minimal warm.tex \
+            || tectonic --untrusted --chatter minimal warm.tex
           test -f warm.pdf
       - run: pytest -m "integration or latex" -v
 
