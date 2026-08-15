@@ -62,6 +62,15 @@ class SubprocessEngine(ABC):
     name: str = "subprocess"
     binary: str = ""
 
+    #: Whether to point ``HOME``/``USERPROFILE`` at the scratch directory.
+    #:
+    #: True for TeX distributions, which read user configuration out of the
+    #: home directory and must not be allowed to. False for engines that
+    #: resolve their own package cache through the platform's standard
+    #: directories -- redirecting the home directory does not sandbox those,
+    #: it just breaks them (see ``TectonicEngine``).
+    sandbox_home: bool = True
+
     @abstractmethod
     def build_command(self, tex_path: Path, workdir: Path) -> list[str]:
         """Argv for compiling ``tex_path`` inside ``workdir``."""
@@ -95,17 +104,21 @@ class SubprocessEngine(ABC):
     def _subprocess_env(self, workdir: Path) -> dict[str, str]:
         """A deliberately boring environment.
 
-        ``HOME``/``TEXMF*`` are redirected into the scratch directory so a
-        compile cannot read or write the user's TeX configuration, and
-        ``SOURCE_DATE_EPOCH`` is pinned so the same source produces
-        byte-identical output -- which is what makes golden-file tests on
-        generated PDFs possible at all.
+        ``TEXMF*`` are redirected into the scratch directory so a compile
+        cannot read or write the user's TeX configuration, ``openin_any``/
+        ``openout_any`` stop the document itself from touching anything
+        outside the working directory, and ``SOURCE_DATE_EPOCH`` is pinned so
+        the same source produces byte-identical output -- which is what makes
+        golden-file tests on generated PDFs possible at all.
+
+        ``HOME``/``USERPROFILE`` are redirected only when ``sandbox_home`` is
+        set. They are defence in depth on top of the ``TEXMF*`` redirect, not
+        the primary control, so an engine that needs a real home directory can
+        decline them without giving up the containment above.
         """
         env = dict(os.environ)
         env.update(
             {
-                "HOME": str(workdir),
-                "USERPROFILE": str(workdir),
                 "TEXMFHOME": str(workdir / "texmf"),
                 "TEXMFVAR": str(workdir / "texmf-var"),
                 "TEXMFCONFIG": str(workdir / "texmf-config"),
@@ -115,6 +128,9 @@ class SubprocessEngine(ABC):
                 "openin_any": "p",
             }
         )
+        if self.sandbox_home:
+            env["HOME"] = str(workdir)
+            env["USERPROFILE"] = str(workdir)
         return env
 
     def compile(self, tex_source: str, *, timeout_s: float) -> CompiledPdf:

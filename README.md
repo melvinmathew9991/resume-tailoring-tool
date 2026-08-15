@@ -69,10 +69,22 @@ length, useless for sending. The UI says so, permanently and prominently.
 Install **Tectonic** — one self-contained binary, no TeX distribution:
 
 ```bash
-winget install TectonicProject.Tectonic   # Windows
-brew install tectonic                      # macOS
-cargo install tectonic                     # anywhere with Rust
+brew install tectonic     # macOS
+cargo install tectonic    # anywhere with Rust
 ```
+
+On Windows, Tectonic is **not** published to winget or Chocolatey — download
+the `x86_64-pc-windows-msvc` zip from
+[the releases page](https://github.com/tectonic-typesetting/tectonic/releases),
+extract `tectonic.exe`, and put its directory on `PATH`:
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\tectonic"
+[Environment]::SetEnvironmentVariable(
+  "Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$dir", "User")
+```
+
+Open a new terminal afterwards, then confirm with `python tasks.py doctor`.
 
 Or run the containers, which bake in TeX Live:
 
@@ -101,6 +113,11 @@ tests/         unit · property · security · api · ui · integration
 Every layer boundary is a validated pydantic model. Nothing crosses one as a
 raw `dict` — which is what makes a whole class of "unexpected key crashes the
 renderer" failures unrepresentable rather than merely guarded against.
+
+📐 **[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the full reference** —
+layer diagram and dependency rule, a module-by-module map, sequence diagrams
+for the match and generate flows, the page-fit ladder, the text-safety
+pipeline, the error-code table, and the developer workflow.
 
 ### PDF engines
 
@@ -198,8 +215,14 @@ python tasks.py check      # lint + types + coverage (what CI runs)
 | `ui` | The real Streamlit script through `AppTest`, including the backend-unreachable path. |
 | `integration` | Real LaTeX compilation. Marked `latex`; skipped automatically when no engine is installed. |
 
-The fast suite is the default because the machine this was built on has no TeX
-installed, and a suite that cannot run protects nothing.
+The fast suite is the default because it must stay runnable on a machine with
+no TeX installed — a suite that cannot run protects nothing.
+
+**Run `test-all` at least once on any machine you develop on.** The first time
+the `latex` suite was executed against a real engine, seven of its nine tests
+failed on a defect that had made the default PDF engine unusable on Windows.
+The fast suite could not have caught it: it runs on the fake engine, which
+never starts a subprocess. Skipped tests are not passing tests.
 
 ---
 
@@ -224,7 +247,8 @@ The ones worth knowing:
 
 - [`docs/PLAN.md`](docs/PLAN.md) — the audit of the previous implementation and
   the rebuild plan, including the full defect list and the edge-case catalogue.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — why the layers are shaped
-  this way.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — architecture and workflow:
+  how the system is built, how a request moves through it, and how to work on
+  it.
 - [`docs/SECURITY.md`](docs/SECURITY.md) — threat model and controls.
 - [`docs/RUNBOOK.md`](docs/RUNBOOK.md) — operating and troubleshooting.

@@ -45,8 +45,10 @@ def render_backend_status(readiness: ReadinessResponse, mode: str) -> None:
             "No LaTeX engine is installed, so generated PDFs are **blank "
             "placeholders with the right page count** -- useful for checking "
             "length, not for sending anywhere.\n\n"
-            "Install Tectonic (one self-contained binary) to get real output:\n"
-            "`winget install TectonicProject.Tectonic`",
+            "Install Tectonic (one self-contained binary) to get real output: "
+            "`brew install tectonic`, `cargo install tectonic`, or on Windows "
+            "the release binary from "
+            "https://github.com/tectonic-typesetting/tectonic/releases",
             icon="⚠️",
         )
     elif not engine.get("ok", False):

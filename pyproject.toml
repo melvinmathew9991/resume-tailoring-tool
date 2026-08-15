@@ -34,6 +34,11 @@ dev = [
     "mypy>=1.10",
     "types-PyYAML>=6.0",
 ]
+# Deliberately not in `dev`: mutmut refuses to run on native Windows
+# (boxed/mutmut#397), and this project's development machine is Windows.
+# Putting it in `dev` would mean every local setup installs a tool that
+# immediately errors out. It is a Linux/CI extra.
+mutation = ["mutmut>=3.0"]
 
 [project.scripts]
 resume-tailor-api = "resume_tailor.api.main:run"
@@ -90,6 +95,19 @@ exclude_lines = [
     "raise NotImplementedError",
     "\\.\\.\\.$",
 ]
+
+# ---------------------------------------------------------------------------
+# mutation testing
+#
+# Scoped to domain/ on purpose. Those two modules are where a bug is silent:
+# a botched escape or a mis-scored keyword produces a plausible-looking resume
+# rather than an exception, so "the tests executed this line" is a much weaker
+# claim there than "the tests would fail if this line were wrong".
+# ---------------------------------------------------------------------------
+[tool.mutmut]
+paths_to_mutate = ["src/resume_tailor/domain/"]
+tests_dir = ["tests/unit/", "tests/property/", "tests/security/"]
+runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider -m 'not latex and not slow'"
 
 # ---------------------------------------------------------------------------
 # ruff

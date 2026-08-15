@@ -361,8 +361,15 @@ only records the parts that went as expected is not worth keeping.
 | P6 Ops | two Dockerfiles, compose, CI matrix, README, ARCHITECTURE, SECURITY, RUNBOOK |
 
 Verified locally: `ruff check` clean, `ruff format --check` clean, `mypy --strict`
-clean across 41 files, 692 tests passing in ~36 s with no LaTeX toolchain
-installed. Nine integration tests are skipped locally and run in CI.
+clean across 41 files.
+
+As first written, that verification covered 692 tests with the nine
+`latex`-marked ones skipped for want of a toolchain. Tectonic has since been
+installed, and the current numbers are **704 tests passing in ~37 s with the
+real engine**, including nine that compile actual PDFs. Of the twelve-test
+increase, nine are those previously-skipped integration tests now actually
+running; the other three are regressions for the defects that first real run
+exposed — see below.
 
 ### Corrections to the audit in §1.2
 
@@ -389,6 +396,56 @@ for writing them:
    link for a user named "repo" — a wrong URL on a resume rather than a reported
    error. Now only a trailing slash is absorbed.
 
+### Defects found after the rebuild, on first contact with a real engine
+
+Tectonic was installed on the development machine for the first time on
+2026-08-15. Until that moment **no test in this repository had ever compiled a
+real document on this machine**, and the nine `latex`-marked tests had only ever
+been skipped. On their first real run, **seven of the nine failed.**
+
+3. **The subprocess sandbox made Tectonic unusable.** `SubprocessEngine`
+   redirected `HOME` and `USERPROFILE` into the per-compile scratch directory.
+   Tectonic resolves its downloaded-package cache through exactly those
+   platform directories, so it exited 1 with `Unable to find standard
+   directories for platform` before typesetting a single page. Every real
+   compile failed, on the engine the README names as the default. Bisecting the
+   environment showed `USERPROFILE` alone was sufficient to cause it, and that
+   setting `TECTONIC_CACHE_DIR` did not rescue it.
+
+   The fix is a per-engine `sandbox_home` flag rather than dropping the
+   redirect globally: `pdflatex` genuinely reads user TeX configuration and
+   keeps the full sandbox, while Tectonic — which does not read TeX user
+   configuration at all and is sandboxed by `--untrusted` — declines it. The
+   containment that was actually doing the work (`TEXMF*` redirection,
+   `openin_any`/`openout_any`, no shell escape) is unchanged in both cases, and
+   there is now a test asserting exactly that.
+
+   Worth noting *why* it survived: the fast suite uses `FakeEngine`, which
+   never builds a subprocess environment, and `render/engines/tectonic.py` is
+   in the coverage `omit` list. The defect sat in the seam between the two
+   things the test estate deliberately does not look at.
+
+4. **The documented Windows install command did not exist.** The README,
+   `tasks.py doctor`, the UI's no-engine warning and the engine's own
+   `missing_binary_hint` all said
+   `winget install TectonicProject.Tectonic`. There is no such winget package —
+   Tectonic is not published to winget or Chocolatey. Anyone following the
+   README on Windows would have hit `No package found matching input criteria`
+   and had no path forward. All four sites now point at the release binary.
+
+### The finding behind both of the above
+
+**No CI workflow in this repository has ever run.** `.github/workflows/ci.yml`
+defines six jobs, including one that installs Tectonic and compiles for real on
+every push. `git remote -v` is empty: there is no remote, nothing has ever been
+pushed, and therefore not one of those jobs has executed a single time.
+
+Statements elsewhere in this document of the form "skipped locally and run in
+CI" were describing intent, not observed behaviour. Anything a plan defers to
+CI is unverified until CI has actually run once — the deferral is only as good
+as the pipeline behind it, and an unrun pipeline provides nothing. Adding a
+remote and pushing is the highest-value open item on the project.
+
 ### Deviations from the plan
 
 - **`ui` is an installed package.** The plan did not anticipate that Streamlit
@@ -410,10 +467,15 @@ for writing them:
 
 ### Not done, and why
 
-- **Mutation testing** (§5.2) is configured for nightly in the plan but is not
-  wired into CI. The property and security suites already constrain the two
-  modules it would target, and `mutmut` on a Windows development box is
-  unreliable. Left as a follow-up rather than shipped half-working.
+- **Mutation testing** (§5.2) is now configured (`[tool.mutmut]`, scoped to
+  `domain/`) and wired as a nightly Linux CI job. It has **never been executed**
+  and the configuration is therefore unverified. The earlier note here said
+  `mutmut` was "unreliable" on Windows; that was too generous — it refuses to
+  start, printing `To run mutmut on Windows, please use the WSL`
+  (boxed/mutmut#397). It cannot be validated on this machine by any available
+  route: no native support, no Docker, and no WSL distribution installed. It is
+  packaged as a separate `mutation` extra so a Windows `pip install -e .[dev]`
+  does not pull in a tool that cannot run.
 - **A golden-file snapshot of rendered `.tex`** (§5.2) was dropped in favour of
   structural assertions (`audit_source` returning no warnings, brace balance,
   ordering). A byte-exact snapshot of a document whose content is expected to

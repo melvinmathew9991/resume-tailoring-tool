@@ -29,7 +29,10 @@ class AppState:
     max_pages: int = 2
     result: GenerateResponse | None = None
     pdf_bytes: bytes | None = None
-    pdf_filename: str = "resume.pdf"
+    """The filename deliberately does not live here. It comes from
+    ``result.filename``, which the backend derives from the profile name, and a
+    second copy in session state would be one more thing to keep in sync -- the
+    stale one would silently name the download ``resume.pdf``."""
     generating: bool = False
     """Guards the Generate button. Without it, a double-click queues a second
     compile behind the first -- two multi-second TeX runs for one intent."""

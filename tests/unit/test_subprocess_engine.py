@@ -115,6 +115,25 @@ class TestSandboxing:
     def test_source_date_epoch_is_pinned_for_reproducibility(self, tmp_path: Path) -> None:
         assert ScriptedEngine("")._subprocess_env(tmp_path)["SOURCE_DATE_EPOCH"] == "0"
 
+    def test_containment_survives_opting_out_of_the_home_redirect(self, tmp_path: Path) -> None:
+        """``sandbox_home = False`` must give up the home redirect and nothing else.
+
+        The redirect is defence in depth on top of the TEXMF redirect and the
+        kpathsea ``*_any`` limits. An engine that declines it still must not be
+        able to reach the user's TeX tree.
+        """
+
+        class OpenHomeEngine(ScriptedEngine):
+            sandbox_home = False
+
+        environment = OpenHomeEngine("")._subprocess_env(tmp_path)
+        assert "HOME" not in environment or environment["HOME"] != str(tmp_path)
+        assert environment["TEXMFHOME"].startswith(str(tmp_path))
+        assert environment["TEXMFVAR"].startswith(str(tmp_path))
+        assert environment["TEXMFCONFIG"].startswith(str(tmp_path))
+        assert environment["openin_any"] == "p"
+        assert environment["openout_any"] == "p"
+
     def test_scratch_directory_is_cleaned_up(self) -> None:
         script = "import os, pathlib; " + WRITE_PDF + "; print(os.getcwd())"
         compiled = ScriptedEngine(script).compile("source", timeout_s=30)

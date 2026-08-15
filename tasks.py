@@ -146,9 +146,11 @@ def task_doctor() -> None:
             "\n  No real engine found. The fake engine still lets the full test\n"
             "  suite run. To produce actual PDFs, install Tectonic (a single\n"
             "  self-contained binary -- no TeX distribution needed):\n"
-            "    winget install TectonicProject.Tectonic\n"
-            "    brew install tectonic\n"
-            "    cargo install tectonic\n"
+            "    brew install tectonic          (macOS)\n"
+            "    cargo install tectonic         (anywhere with Rust)\n"
+            "    Windows: download the release binary and put it on PATH --\n"
+            "      https://github.com/tectonic-typesetting/tectonic/releases\n"
+            "      (it is not published to winget)\n"
             "  ...or run `docker compose -f docker/docker-compose.yml up`."
         )
 

@@ -105,6 +105,31 @@ jobs:
         env:
           RT_PDF_ENGINE: pdflatex
 
+  # Coverage proves a line ran; mutation proves an assertion would have caught
+  # it being wrong. Scoped to domain/ (escaping and matching), where a defect
+  # is silent -- it produces a plausible resume rather than an error.
+  #
+  # Nightly rather than per-push because it is minutes, not seconds, and
+  # Linux-only because mutmut does not support native Windows
+  # (boxed/mutmut#397), which is why it cannot be run on this project's
+  # development machine.
+  mutation:
+    name: mutation (domain)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,ui,mutation]"
+      - name: Mutate the domain modules
+        run: mutmut run --max-children 4
+      - name: Report surviving mutants
+        if: always()
+        run: mutmut results
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

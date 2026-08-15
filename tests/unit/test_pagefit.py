@@ -236,3 +236,24 @@ class TestEngineRegistry:
     def test_tectonic_command_is_untrusted(self, tmp_path) -> None:
         command = TectonicEngine().build_command(tmp_path / "resume.tex", tmp_path)
         assert "--untrusted" in command
+
+    def test_tectonic_keeps_the_real_home_directory(self, tmp_path) -> None:
+        """Regression: redirecting the home directory made tectonic unusable.
+
+        Tectonic finds its downloaded-package cache through the platform's
+        standard directories. Pointing ``USERPROFILE`` at the per-compile
+        scratch directory made it exit 1 with "Unable to find standard
+        directories for platform" before typesetting a single page -- on
+        Windows, every real compile failed. No test caught it because the fast
+        suite uses the fake engine and the integration suite had never been run
+        against an installed engine.
+        """
+        environment = TectonicEngine()._subprocess_env(tmp_path)
+        assert environment.get("USERPROFILE", "") != str(tmp_path)
+        assert environment.get("HOME", "") != str(tmp_path)
+
+    def test_pdflatex_still_redirects_the_home_directory(self, tmp_path) -> None:
+        """The opt-out is tectonic-specific; a TeX distribution keeps the sandbox."""
+        environment = PdflatexEngine()._subprocess_env(tmp_path)
+        assert environment["HOME"] == str(tmp_path)
+        assert environment["USERPROFILE"] == str(tmp_path)
