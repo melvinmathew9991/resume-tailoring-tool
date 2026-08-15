@@ -157,13 +157,28 @@ ignore_missing_imports = true
 # Transitive dependencies of streamlit that ship their own type stubs, so mypy
 # follows into them and type-checks third-party code we do not import directly.
 #
-# That is not just wasted work, it is a portability trap: `python_version` here
-# is 3.10 (the floor this project supports), while CI installs whatever numpy
-# matches the runner's interpreter. On Python 3.12 that is a numpy whose stubs
-# use `type` statements, which are 3.12-only syntax -- so mypy parsed them
-# under 3.10 rules and failed with a syntax error in a file nobody here wrote.
-# Skipping the follow keeps the check about this codebase.
+# That is not just wasted work, it is a portability trap. `python_version` above
+# is 3.10, this project's `requires-python` floor. Run mypy on a *newer*
+# interpreter and pip resolves a different dependency set than the one being
+# asserted about: on 3.12 that is a numpy whose stubs use `type` statements,
+# 3.12-only syntax, which mypy parses under 3.10 rules and rejects -- a syntax
+# error in a file nobody here wrote, and one that cannot reproduce on 3.10.
+#
+# The primary fix is that CI type-checks on 3.10 (see .github/workflows/ci.yml).
+# This override is the belt-and-braces half, for anyone running mypy on a newer
+# local interpreter. Both the bare name and the wildcard are listed: the
+# wildcard alone does not reliably match the top-level package itself, which is
+# exactly where numpy's offending stub lives.
 [[tool.mypy.overrides]]
-module = ["numpy.*", "pandas.*", "pyarrow.*", "altair.*"]
+module = [
+    "numpy",
+    "numpy.*",
+    "pandas",
+    "pandas.*",
+    "pyarrow",
+    "pyarrow.*",
+    "altair",
+    "altair.*",
+]
 follow_imports = "skip"
 ignore_missing_imports = true

@@ -53,9 +53,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # 3.10 on purpose: it is this project's `requires-python` floor and what
+      # `python_version` in [tool.mypy] is pinned to. Type-checking the floor
+      # on a newer interpreter resolves a different dependency set than the one
+      # being asserted about -- on 3.12 that meant a numpy whose stubs use
+      # 3.12-only `type` statements, which mypy then parsed under 3.10 rules
+      # and rejected. Check the floor on the floor.
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.10"
           cache: pip
       - run: pip install -e ".[dev,ui]"
       - run: ruff check .
