@@ -103,7 +103,14 @@ jobs:
       - name: Warm the Tectonic package cache with the real template
         run: |
           mkdir -p /tmp/warm
-          python - <<'PY' > /tmp/warm/warm.tex
+          # The .tex is written from Python rather than by redirecting stdout.
+          # Loading the repositories emits structured log lines on stdout, and
+          # redirecting put them at the top of the file -- "warm.tex:1: LaTeX
+          # Error: Missing \begin{document}". Writing the file directly is
+          # immune to anything else the process decides to print.
+          python - <<'PY'
+          import pathlib
+
           from resume_tailor.core.config import Settings
           from resume_tailor.data.bank_repo import BankRepository
           from resume_tailor.data.profile_repo import ProfileRepository
@@ -118,9 +125,17 @@ jobs:
               engine=FakeEngine(),
           )
           keys = list(svc.bank().visible())[:4]
-          print(svc.render_preview(svc.build_spec(keys, max_pages=2))[0])
+          tex = svc.render_preview(svc.build_spec(keys, max_pages=2))[0]
+          out = pathlib.Path("/tmp/warm/warm.tex")
+          out.write_text(tex, encoding="utf-8")
+          print(f"wrote {out} ({len(tex)} chars)")
           PY
           cd /tmp/warm
+          head -c 120 warm.tex; echo
+          # -F: match the literal string. As a regex, the backslash and braces
+          # need escaping that differs between grep dialects, and getting it
+          # subtly wrong fails the step on a perfectly good file.
+          grep -qF '\begin{document}' warm.tex
           # Two attempts: the bundle CDN is a network dependency, and a single
           # transient fetch failure should not redden the whole run.
           time tectonic --untrusted --chatter minimal warm.tex \

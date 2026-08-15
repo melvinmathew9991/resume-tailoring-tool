@@ -116,11 +116,20 @@ exclude_lines = [
 # relative to the repository root. Without the data directory in that copy,
 # every mutant run dies collecting `real_bank` with a BankError -- which mutmut
 # reports as "failed to collect stats", not as a missing file.
+#
+# The `-k` deselection exists for the same reason. In the mutants tree only the
+# mutated subpackage is copied, so `resume_tailor` resolves as a namespace
+# package with no `__init__.py` and `from resume_tailor import __version__`
+# fails with "unknown location". Any test that builds the FastAPI app hits it.
+# Two of the four classes in the injection corpus do; the other two are pure
+# domain and are the ones worth keeping here, since they are what actually
+# constrains `latex.py`. Mutating pure logic against tests that boot a web
+# application would be wasted work regardless.
 [tool.mutmut]
 paths_to_mutate = ["src/resume_tailor/domain/"]
 tests_dir = ["tests/unit/", "tests/security/"]
 also_copy = ["data/"]
-runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider tests/unit/test_latex.py tests/unit/test_matching.py tests/unit/test_models.py tests/security/test_injection.py"
+runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider tests/unit/test_latex.py tests/unit/test_matching.py tests/unit/test_models.py tests/security/test_injection.py -k 'not Api and not ErrorResponses'"
 
 # ---------------------------------------------------------------------------
 # ruff
