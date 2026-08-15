@@ -169,7 +169,7 @@
   },
   "vaccination_nlp": {
     "title": "Vaccination Tweet Sentiment Analysis (NLP)",
-    "github": "melvinmathew9991",
+    "github": "melvinmathew9991/Vaccination_Tweet_Sentimental_Analysis",
     "domain": ["nlp", "social media analytics", "public health", "market research"],
     "keywords": ["nlp", "sentiment analysis", "tf-idf", "text classification", "logistic regression",
       "linearsvc", "gridsearchcv", "data leakage", "negation handling", "social media data"],
@@ -181,7 +181,7 @@
   },
   "call_center_dl": {
     "title": "Deep Learning Call Center Forecasting (MLP, CNN, LSTM, CNN-LSTM)",
-    "github": "melvinmathew9991",
+    "github": "melvinmathew9991/deep-learning-call-center-forecasting",
     "domain": ["deep learning", "forecasting", "healthcare operations"],
     "keywords": ["deep learning", "tensorflow", "keras", "mlp", "cnn", "lstm", "cnn-lstm",
       "time series", "neural networks", "model comparison", "root cause analysis"],
