@@ -365,11 +365,19 @@ clean across 41 files.
 
 As first written, that verification covered 692 tests with the nine
 `latex`-marked ones skipped for want of a toolchain. Tectonic has since been
-installed, and the current numbers are **704 tests passing in ~37 s with the
-real engine**, including nine that compile actual PDFs. Of the twelve-test
-increase, nine are those previously-skipped integration tests now actually
-running; the other three are regressions for the defects that first real run
-exposed — see below.
+installed, and then a full end-to-end audit (19 Aug 2026, §10) found fifteen
+defects sitting behind the green suite and fixed them. The current numbers are **824
+tests and 95.0% coverage across both `resume_tailor` and `ui`**, nine of them
+compiling actual PDFs with the real engine.
+
+That audit is worth recording as a result in its own right, for what it says
+about the suite that preceded it. 705 passing tests, a clean `mypy --strict`,
+and a 97% coverage number did not surface a live LaTeX-injection hole in the
+resume header, a body-size limiter that did the opposite of what its own
+docstring claimed, or a mutation-testing configuration that four consecutive
+nightly CI runs had already been failing on. Coverage measures which lines ran.
+None of these three defects was an unrun line.
+
 
 ### Corrections to the audit in §1.2
 
@@ -476,17 +484,137 @@ remote and pushing is the highest-value open item on the project.
 
 ### Not done, and why
 
-- **Mutation testing** (§5.2) is now configured (`[tool.mutmut]`, scoped to
-  `domain/`) and wired as a nightly Linux CI job. It has **never been executed**
-  and the configuration is therefore unverified. The earlier note here said
-  `mutmut` was "unreliable" on Windows; that was too generous — it refuses to
-  start, printing `To run mutmut on Windows, please use the WSL`
-  (boxed/mutmut#397). It cannot be validated on this machine by any available
-  route: no native support, no Docker, and no WSL distribution installed. It is
-  packaged as a separate `mutation` extra so a Windows `pip install -e .[dev]`
-  does not pull in a tool that cannot run.
+- **Mutation testing** (§5.2) is configured (`[tool.mutmut]`, scoped to
+  `domain/`) and wired as a nightly Linux CI job. It has now executed — and
+  failed on four consecutive nights, for a reason worth writing down. The block
+  was written against mutmut **2**'s schema, and mutmut 3 ignores the key it
+  depended on most: `runner = "..."` is not read at all, and is not warned about
+  either. `PytestRunner` builds its own argv out of `pytest_add_cli_args` and
+  `pytest_add_cli_args_test_selection`. So a carefully constructed command line
+  — explicit test files, `--assert=plain`, and a `-k` deselection added
+  specifically to fix this very failure — sat in `pyproject.toml` doing
+  nothing, while the failure it was written to prevent kept happening with no
+  hint as to why. Two further keys, `paths_to_mutate` and `tests_dir`, still
+  work but are deprecated aliases and warn on every run.
+
+  The lesson is about the failure mode rather than the tool. A config key that
+  is silently ignored costs far more than one that errors, because every piece
+  of evidence keeps pointing at the code under test. The block now uses the v3
+  keys, and the selection has been verified by running mutmut's exact argv by
+  hand: **210 selected, 164 deselected**, where before nothing was deselected at
+  all and the app-building tests ran and failed.
+
+  `mutmut` itself still cannot run on this machine — it refuses to start,
+  printing `To run mutmut on Windows, please use the WSL` (boxed/mutmut#397),
+  and there is no native support, no Docker and no WSL distribution here. The
+  mutation run therefore remains CI-only, and it stays a separate `mutation`
+  extra so a Windows `pip install -e .[dev]` does not pull in a tool that cannot
+  run.
 - **A golden-file snapshot of rendered `.tex`** (§5.2) was dropped in favour of
   structural assertions (`audit_source` returning no warnings, brace balance,
   ordering). A byte-exact snapshot of a document whose content is expected to
   be edited regularly would fail on every legitimate content change, which
   trains people to regenerate it without reading the diff.
+
+---
+
+## 10. End-to-end audit, 19 August 2026
+
+A full sweep of the code, the gates, the containers and the documentation,
+performed against `main @ d6df8a5` with every finding executed rather than read
+off a doc. Fifteen defects, all fixed in one pass. They are recorded here
+because the interesting part is not the individual bugs — it is that a suite of
+705 passing tests, a clean `mypy --strict`, and a 97% coverage number reported
+none of them.
+
+### 10.1 What the green suite was not measuring
+
+Three findings share one root cause, and it is worth naming: **every check in
+this project verified that code ran, not that the right thing happened at the
+boundary between two correct-looking pieces.**
+
+- The **injection hole** (10.2, SEC-1) sat in `domain/latex.py` and
+  `render/renderer.py`, both at 100% line coverage. Every line ran. No test
+  asserted that a link target was validated, because nobody had noticed link
+  targets were a category.
+- The **body-size limiter** (10.2, SEC-2) had tests, and they passed. They
+  passed against the header path only; the test that claimed to exercise the
+  chunked path sent a request with a `Content-Length` on it, because httpx adds
+  one to a bytes body. The docstring described a defence that the test did not
+  reach and the code did not implement.
+- The **mutmut configuration** (10.2, CI-1) is not covered by tests at all, by
+  nature. It failed four consecutive nightly runs while the two commits before
+  this audit both aimed at the wrong cause, because a silently-ignored config
+  key makes every piece of available evidence point at the code under test.
+
+### 10.2 Findings
+
+Ranked as they were prioritised, not as they were found.
+
+| # | Area | Finding |
+|---|---|---|
+| CI-1 | CI | `[tool.mutmut]` written against mutmut 2's schema. `runner` is not a key mutmut 3 reads, and is not warned about, so the explicit test files, `--assert=plain` and the deselection were all inert. `paths_to_mutate` and `tests_dir` are deprecated aliases. |
+| SEC-1 | Security | `email` reached `\href{mailto:...}` raw with no shape validation, while `linkedin_url` and `github_url` beside it were validated for exactly that. Reproduced: a `personal_info.email` override placed an attacker-chosen clickable link in the resume header and returned 200 with no warnings. |
+| PKG-1 | Packaging | `anyio` and `starlette` imported directly but declared nowhere; both arrived transitively through FastAPI. |
+| CI-2 | CI | `[tool.coverage.run] source` named only `resume_tailor`, so the entire `ui` package — four modules with a dedicated `AppTest` suite running on every CI job — was excluded from the gate. |
+| SEC-2 | Security | `BodySizeLimitMiddleware` buffered the whole body with `await request.body()` and measured afterwards, while its docstring and `SECURITY.md` both claimed streaming enforcement. |
+| SEC-3 | Security | API key compared with `!=` rather than `secrets.compare_digest`. |
+| SEC-4 | Security | Rate-limiter `_hits` dict never evicted quiet clients. |
+| SEC-5 | Security | The 32 MB PDF ceiling was applied after `read_bytes()`, so a runaway document was resident before it was refused. |
+| SEC-6 | Security | `redact_pii` blanked the key `name` globally, erasing `EngineStatus.name` from the readiness log — the one field that log line exists to report. |
+| PKG-2 | Runtime | `_probe_version` spawned a `--version` subprocess on every `status()` call; `/health/ready` reaches it per request and both images poll it every 30 s. Measured ~52 ms each. |
+| PKG-3 | Packaging | The default `data_dir` walked up from `__file__`, which resolves to the environment root under a real wheel. Both images set `RT_DATA_DIR` and so never noticed. |
+| PKG-4 | Hygiene | `tests/api`, `tests/integration` and `tests/ui` had no `__init__.py` while the other three test packages did. |
+| CI-3 | CI | No dependency ceilings anywhere; `pip install .` in a container resolved whatever was current. Actual drift found: pypdf 4 → 6, structlog 24 → 26. |
+| CI-4 | CI | `coverage.xml` uploaded as an artifact that nothing consumed. |
+| CI-5 | CI | `concurrency.group` omitted `github.event_name`, so a manual dispatch cancelled the push run for the same ref. The push runs for the two commits before this audit both died at 2–3 s. |
+
+Five documentation claims were also corrected, including two module docstrings
+still describing the lifespan-built service that §"The service is built in
+`create_app`" had already recorded as changed.
+
+### 10.3 What changed structurally, not just locally
+
+Four of the fixes are design changes rather than patches, and those are the
+ones worth keeping in mind when extending the project:
+
+**The mutation deselection became structural.** The `-k "not Api and not
+ErrorResponses"` filter that CI-1 restored to working order was still a naming
+convention rather than a constraint, and the very first app-backed class added
+during this audit — `TestLinkTargetsAreValidated` — would have sailed straight
+through it and back into the same namespace-package import failure. Those
+classes now carry `pytest.mark.api` and the job deselects `-m "not api"`.
+
+**One shared link-target check, applied twice.** `require_href_safe` now lives
+in `domain/latex.py` and is called by every model validator that owns a link
+field, *and* again by `render/renderer.py::_href`, which is now the only place
+in the codebase that constructs an `\href{}`. The template no longer assembles
+its own project link. The point is not belt-and-braces: it is that the previous
+design made "add a field that reaches a link and forget to validate it" a silent
+one-line mistake, and made the result invisible to every downstream check.
+
+**The body limiter left `BaseHTTPMiddleware`.** It is plain ASGI now, wrapping
+`receive`. Starlette's own `_CachedRequest` documents why there was no fix
+available inside `dispatch`: `body()` buffers everything and `stream()` empties
+the body for downstream. The class of bug here is the general one — a docstring
+describing an intent that the framework does not permit, with nothing to catch
+the divergence.
+
+**Redaction became path-aware.** `_SENSITIVE_KEYS` blanks a value wherever the
+key appears, which is right for `email` and `api_key` and wrong for `name`. A
+second table, `_SENSITIVE_PATHS`, blanks a field only inside the container it
+actually travels in. Over-broad redaction is not a safe default; it destroys
+exactly the diagnostic information an incident needs.
+
+### 10.4 Numbers, before and after
+
+| | Before | After |
+|---|---|---|
+| Tests | 705 | 824 |
+| Coverage | 97.3% over `resume_tailor` only | 95.0% over `resume_tailor` **and** `ui` |
+| Security corpus | 36 payloads | 46 payloads, including a new link-target class |
+| Nightly CI | 9 of 10 jobs green, 4 nights running | expected green |
+
+The coverage number went *down* and that is the honest direction: the
+denominator grew by 365 statements of previously unmeasured frontend. A number
+that only ever rises is measuring the wrong thing.

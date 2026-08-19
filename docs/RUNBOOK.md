@@ -129,9 +129,21 @@ python tasks.py check      # lint + types + coverage gate (what CI runs)
 python tasks.py test-all   # includes real compiles, if an engine is installed
 ```
 
-The coverage gate is 90% overall. `domain/latex.py` and `domain/matching.py`
-are the two modules where a bug is silent and lands on a real resume — keep
-them at 100%.
+The coverage gate is 90%, measured over **both** `resume_tailor` and `ui`. The
+frontend was outside the measured set for a long time — `source` named only the
+library — so four modules with their own `AppTest` suite contributed nothing to
+the reported number. If you add a `--cov=` flag by hand, name both roots: an
+explicit `--cov=<pkg>` overrides `source` in `pyproject.toml` entirely and
+silently drops the other one.
+
+`domain/latex.py` and `domain/matching.py` are the two modules where a bug is
+silent and lands on a real resume — keep them at 100%.
+
+Coverage is a floor, not a finish line. The 19 Aug 2026 audit found a live
+LaTeX-injection hole in a module sitting at 100% line coverage: every line ran,
+no test asserted the thing that mattered. That is what the mutation job on
+`domain/` exists to catch, and why `tests/security/payloads.py` is the file to
+extend whenever a new class of hostile input is discovered.
 
 If you touch the LaTeX escaping, run the property tests specifically:
 
