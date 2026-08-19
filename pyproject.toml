@@ -11,20 +11,43 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Melvin Mathew" }]
 
+# Floors *and* ceilings. The floors were here from the start; the ceilings are
+# the fix for a real gap -- with only lower bounds, `pip install .` in a
+# container resolves whatever is current on the day of the build, so the image
+# and the `docker build` CI job can break from an upstream release with no
+# commit to this repository. That is not theoretical here: the declared floors
+# say pypdf 4 and structlog 24, and an install today resolves pypdf 6 and
+# structlog 26 -- two major versions of drift that nothing in this project ever
+# reviewed or noticed.
+#
+# Each ceiling is the next major above a version this project has actually been
+# tested against, so a patch or minor release still flows through and only a
+# breaking major needs a human. A full lockfile would pin harder still, but it
+# would also have to be resolved per-platform (the container is Linux/3.12, the
+# development machine is Windows/3.10) and would go stale silently, which trades
+# one maintenance problem for a worse one.
 dependencies = [
-    "fastapi>=0.111",
-    "uvicorn[standard]>=0.30",
-    "pydantic>=2.7",
-    "pydantic-settings>=2.3",
-    "Jinja2>=3.1",
-    "pypdf>=4.2",
-    "PyYAML>=6.0",
-    "structlog>=24.1",
-    "httpx>=0.27",
+    "fastapi>=0.111,<1.0",
+    "uvicorn[standard]>=0.30,<1.0",
+    "pydantic>=2.7,<3",
+    "pydantic-settings>=2.3,<3",
+    "Jinja2>=3.1,<4",
+    "pypdf>=4.2,<7",
+    "PyYAML>=6.0,<7",
+    "structlog>=24.1,<27",
+    "httpx>=0.27,<1.0",
+    # Imported directly, not merely inherited from FastAPI.
+    # `anyio.to_thread.run_sync` is what keeps compilation off the event loop,
+    # and `starlette.middleware.base.BaseHTTPMiddleware` is the base class of
+    # the two middlewares that use one. Relying on FastAPI to keep pulling them
+    # in means a release that re-pins either one breaks this package with no
+    # signal from its own metadata.
+    "anyio>=4.0,<5",
+    "starlette>=0.37,<2",
 ]
 
 [project.optional-dependencies]
-ui = ["streamlit>=1.36"]
+ui = ["streamlit>=1.36,<2"]
 dev = [
     "pytest>=8.2",
     "pytest-cov>=5.0",
@@ -81,7 +104,11 @@ markers = [
 # coverage
 # ---------------------------------------------------------------------------
 [tool.coverage.run]
-source = ["resume_tailor"]
+# Both roots. `ui` was outside the measured set for a long time, which meant the
+# Streamlit package -- four modules with a dedicated AppTest suite that runs on
+# every CI job -- contributed nothing to the reported number. Emptying `omit`
+# removed one blind spot; this removes the larger one.
+source = ["resume_tailor", "ui"]
 branch = true
 omit = []
 
@@ -104,32 +131,62 @@ exclude_lines = [
 # rather than an exception, so "the tests executed this line" is a much weaker
 # claim there than "the tests would fail if this line were wrong".
 # ---------------------------------------------------------------------------
-# The runner names its test files explicitly. Without paths, pytest falls back
-# to `testpaths = ["tests"]` above and runs the entire suite -- api, ui,
+# These are mutmut *3* option names. The block previously used mutmut 2's
+# schema, and the single most expensive fact about that is how it fails: mutmut
+# 3 does not read `runner` at all and does not complain about it either. It
+# reads `pytest_add_cli_args` and `pytest_add_cli_args_test_selection`, then
+# PytestRunner builds its own argv and never consults `runner`. So a carefully
+# written command line -- explicit test files, `--assert=plain`, and a `-k`
+# deselection -- sat here for four nightly runs doing precisely nothing, and the
+# failure it was written to prevent kept happening with no hint as to why.
+# `paths_to_mutate` and `tests_dir` still work but warn; they are spelled
+# `source_paths` and folded into the test selection now.
+#
+# The selection names its test files explicitly. Without paths, pytest falls
+# back to `testpaths = ["tests"]` above and runs the entire suite -- api, ui,
 # streamlit startup, hypothesis -- once per mutant. With hundreds of mutants
-# that is hours of compute to learn something about two pure modules. These
-# four targets are the ones that actually constrain domain/, and `-x` stops
-# each run at the first failure, which is all a mutant needs to be killed.
+# that is hours of compute to learn something about two pure modules. These four
+# targets are the ones that actually constrain domain/, and mutmut supplies its
+# own `-x`, which is all a mutant needs to be killed.
 #
 # `also_copy` is required, not optional: mutmut runs the suite from a `mutants/`
 # copy of the project, and `tests/conftest.py` resolves the real project bank
 # relative to the repository root. Without the data directory in that copy,
 # every mutant run dies collecting `real_bank` with a BankError -- which mutmut
-# reports as "failed to collect stats", not as a missing file.
+# reports as "failed to collect stats", not as a missing file. (`tests/` and
+# `pyproject.toml` are copied by mutmut 3 automatically, so only data/ is named.)
 #
-# The `-k` deselection exists for the same reason. In the mutants tree only the
-# mutated subpackage is copied, so `resume_tailor` resolves as a namespace
-# package with no `__init__.py` and `from resume_tailor import __version__`
-# fails with "unknown location". Any test that builds the FastAPI app hits it.
-# Two of the four classes in the injection corpus do; the other two are pure
+# The `-m "not api"` deselection exists for a different reason. In the mutants
+# tree only the mutated subpackage is copied, so `resume_tailor` resolves as a
+# namespace package with no `__init__.py` and `from resume_tailor import
+# __version__` fails with "unknown location". Any test that builds the FastAPI
+# app hits it. Three classes in the injection corpus do; the rest are pure
 # domain and are the ones worth keeping here, since they are what actually
 # constrains `latex.py`. Mutating pure logic against tests that boot a web
 # application would be wasted work regardless.
+#
+# By marker, not by class name. The earlier version matched `-k "not Api and not
+# ErrorResponses"`, which is a naming convention rather than a constraint: the
+# very next app-backed class added to that file was named
+# `TestLinkTargetsAreValidated` and would have sailed straight through the
+# filter and back into the same import failure. `pytest_add_cli_args` is
+# appended after the test selection, which is what makes the flag apply at all.
 [tool.mutmut]
-paths_to_mutate = ["src/resume_tailor/domain/"]
-tests_dir = ["tests/unit/", "tests/security/"]
+source_paths = ["src/resume_tailor/domain/"]
 also_copy = ["data/"]
-runner = "python -m pytest -x -q --assert=plain -p no:cacheprovider tests/unit/test_latex.py tests/unit/test_matching.py tests/unit/test_models.py tests/security/test_injection.py -k 'not Api and not ErrorResponses'"
+pytest_add_cli_args_test_selection = [
+    "tests/unit/test_latex.py",
+    "tests/unit/test_matching.py",
+    "tests/unit/test_models.py",
+    "tests/security/test_injection.py",
+]
+pytest_add_cli_args = [
+    "--assert=plain",
+    "-p",
+    "no:cacheprovider",
+    "-m",
+    "not api",
+]
 
 # ---------------------------------------------------------------------------
 # ruff
@@ -161,6 +218,10 @@ ignore = [
 "tests/*" = ["S", "B011"]
 "src/resume_tailor/render/engines/*" = ["S603", "S607"]  # subprocess calls are the point
 "tasks.py" = ["S603", "S607"]  # a task runner invoking fixed developer commands
+# The only input is coverage.xml, produced moments earlier by this project's own
+# test run on the same runner. Pulling in defusedxml to parse it would add a
+# dependency to the CI image to guard against a file we just wrote ourselves.
+".github/scripts/*" = ["S314"]
 
 # ---------------------------------------------------------------------------
 # mypy

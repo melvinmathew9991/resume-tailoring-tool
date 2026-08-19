@@ -24,6 +24,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Dependency layer first, so editing source does not re-resolve dependencies.
+#
+# The versions come from the bounds in pyproject.toml, which carry ceilings as
+# well as floors. With floors alone this line resolved whatever was current on
+# the day of the build, so the image and the `docker build` CI job could break
+# from an upstream release with no commit to this repository -- and did drift two
+# major versions of pypdf and structlog without anyone reviewing it.
+#
+# The base image tag is deliberately *not* pinned by digest. It floats on Python
+# patch releases and Debian security updates, which is the right trade for a
+# container whose whole job is running a document compiler on untrusted input.
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 RUN pip install --no-cache-dir .

@@ -8,9 +8,15 @@ on:
   schedule:
     - cron: "0 3 * * *"   # nightly: the expensive real-toolchain job
 
+# `github.event_name` is in the key on purpose. Without it a manual
+# workflow_dispatch shares a bucket with the push run for the same ref and
+# cancels it -- which is exactly what happened to the push runs for the last two
+# commits on main: both died at 2-3 seconds, and only the nightly schedule ever
+# tested them. Pull requests still cancel their own superseded runs, which is
+# the case cancel-in-progress is actually worth having.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
@@ -41,7 +47,14 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev,ui]"
       - name: Run the fast suite with the coverage gate
-        run: pytest -m "not integration and not latex and not slow" --cov=resume_tailor --cov-report=term-missing --cov-report=xml
+        run: pytest -m "not integration and not latex and not slow" --cov=resume_tailor --cov=ui --cov-report=term-missing --cov-report=xml
+      # Surfaced in the run summary rather than only uploaded. The XML was
+      # published as an artifact that nothing consumed -- no Codecov step, no
+      # diff-coverage check, no annotation -- so the number was only ever
+      # visible to someone who downloaded the file and opened it.
+      - name: Report coverage in the run summary
+        if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
+        run: python .github/scripts/coverage_summary.py coverage.xml >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
         with:
