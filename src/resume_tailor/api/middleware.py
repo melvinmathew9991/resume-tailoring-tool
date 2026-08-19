@@ -16,6 +16,7 @@ from collections.abc import Awaitable, Callable
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from resume_tailor.core.errors import PayloadTooLargeError, RateLimitedError
 from resume_tailor.core.logging import get_logger, request_id_var
@@ -25,6 +26,13 @@ logger = get_logger(__name__)
 RequestHandler = Callable[[Request], Awaitable[Response]]
 
 PROBLEM_CONTENT_TYPE = "application/problem+json"
+
+#: The rate-limit window, and how often the limiter drops clients that have
+#: gone quiet. Sweeping on a timer rather than on every request keeps the hot
+#: path O(1) -- a scan of every known client on each call would make the
+#: limiter itself the expensive part of a cheap endpoint.
+_WINDOW_S = 60.0
+_SWEEP_INTERVAL_S = 300.0
 
 
 def problem_response(
@@ -62,31 +70,89 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         return response
 
 
-class BodySizeLimitMiddleware(BaseHTTPMiddleware):
-    """Reject oversized bodies before they are parsed.
+class BodySizeLimitMiddleware:
+    """Reject oversized bodies, without buffering them first.
 
-    Checks the declared ``Content-Length`` first, then enforces the same limit
-    while streaming, because a chunked request can simply omit the header.
+    Two checks, because either one alone has a hole: the declared
+    ``Content-Length`` is refused up front and costs nothing, but a chunked
+    request can simply omit that header, so the bytes are also counted as they
+    arrive and the request is refused the moment the running total crosses the
+    limit.
+
+    **Pure ASGI, deliberately not a** :class:`BaseHTTPMiddleware`. That is not a
+    style preference, it is the only way to do this correctly. Starlette's
+    ``_CachedRequest`` documents the constraint: inside a ``dispatch`` method,
+    calling ``request.body()`` buffers the *entire* body in memory before the
+    handler can look at it, and calling ``request.stream()`` instead makes
+    downstream see an empty body. So a ``BaseHTTPMiddleware`` size limiter has
+    exactly one option -- buffer everything, then measure -- which means an
+    unbounded chunked upload is fully resident in memory by the time the limit
+    is applied. That is the specific attack this middleware exists to stop, and
+    the previous implementation's docstring claimed to stop it while doing the
+    opposite.
+
+    Wrapping ``receive`` sidesteps the whole problem: bytes are counted as the
+    application pulls them, and the request is cut off at the first chunk that
+    crosses the limit. The bound is therefore ``max_bytes`` plus one transport
+    chunk, not ``max_bytes`` exactly -- what is bounded is that the process
+    never holds an attacker-chosen amount.
     """
 
-    def __init__(self, app: object, max_bytes: int) -> None:
-        super().__init__(app)  # type: ignore[arg-type]
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
         self._max_bytes = max_bytes
 
-    async def dispatch(self, request: Request, call_next: RequestHandler) -> Response:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        request = Request(scope)
         declared = request.headers.get("content-length")
         if declared is not None:
             try:
-                if int(declared) > self._max_bytes:
-                    return problem_response(self._error(int(declared)), request)
+                announced = int(declared)
             except ValueError:
-                pass  # malformed header; the streaming check below still applies
+                pass  # malformed header; the counting check below still applies
+            else:
+                if announced > self._max_bytes:
+                    response = problem_response(self._error(announced), request)
+                    await response(scope, receive, send)
+                    return
 
-        body = await request.body()
-        if len(body) > self._max_bytes:
-            return problem_response(self._error(len(body)), request)
+        received = 0
+        over_limit = False
 
-        return await call_next(request)
+        async def counting_receive() -> Message:
+            nonlocal received, over_limit
+            message = await receive()
+            if message["type"] == "http.request":
+                received += len(message.get("body", b""))
+                if received > self._max_bytes:
+                    # A disconnect rather than an exception. Raising here does
+                    # not work: this runs inside the application's own
+                    # `await request.body()`, and FastAPI wraps *anything* that
+                    # comes out of that call into "there was an error parsing
+                    # the body" -- a 400 that names neither the real problem nor
+                    # the limit. Signalling a disconnect unwinds the handler
+                    # without reading another byte, and the real answer is sent
+                    # below.
+                    over_limit = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def limited_send(message: Message) -> None:
+            # Once the limit is breached the application's own response is
+            # whatever it made of the truncated body. Drop it; ours is the
+            # answer the client gets.
+            if not over_limit:
+                await send(message)
+
+        await self.app(scope, counting_receive, limited_send)
+
+        if over_limit:
+            response = problem_response(self._error(received), request)
+            await response(scope, receive, send)
 
     def _error(self, size: int) -> PayloadTooLargeError:
         return PayloadTooLargeError(
@@ -117,6 +183,23 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._generate = generate_per_minute
         self._generate_paths = generate_paths
         self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+        self._last_sweep = time.monotonic()
+
+    def _sweep(self, now: float) -> None:
+        """Drop clients that have gone quiet.
+
+        Pruning inside ``dispatch`` only ever touches the key being used, so a
+        client that makes one request and never returns leaves its entry behind
+        permanently. One entry per distinct address is nothing for the localhost
+        tool this is, and an unbounded dict the moment the service is bound to a
+        network -- which is the case every other control here is written for.
+        """
+        if now - self._last_sweep < _SWEEP_INTERVAL_S:
+            return
+        self._last_sweep = now
+        stale = [key for key, hits in self._hits.items() if not hits or now - hits[-1] > _WINDOW_S]
+        for key in stale:
+            del self._hits[key]
 
     def _limit_for(self, path: str) -> tuple[str, int]:
         if any(path.startswith(prefix) for prefix in self._generate_paths):
@@ -132,12 +215,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key = (client, bucket)
 
         now = time.monotonic()
+        self._sweep(now)
         hits = self._hits[key]
-        while hits and now - hits[0] > 60.0:
+        while hits and now - hits[0] > _WINDOW_S:
             hits.popleft()
 
         if len(hits) >= limit:
-            retry_after = max(1, int(60.0 - (now - hits[0])))
+            retry_after = max(1, int(_WINDOW_S - (now - hits[0])))
             logger.warning("http.rate_limited", path=request.url.path, bucket=bucket)
             response = problem_response(
                 RateLimitedError(

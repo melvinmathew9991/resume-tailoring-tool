@@ -1,10 +1,13 @@
 """FastAPI application factory.
 
 Everything expensive or stateful (bank cache, profile cache, PDF engine,
-document store, compile semaphore) is built once in the lifespan handler and
+document store, compile semaphore) is built once in :func:`create_app` and
 attached to ``app.state``. Tests build their own app with an injected fake
-engine through :func:`create_app`, which is why the whole API suite runs in
+engine through the same function, which is why the whole API suite runs in
 milliseconds with no TeX toolchain present.
+
+Note *create_app*, not the lifespan handler -- see the comment on the
+construction itself for why that distinction is load-bearing.
 """
 
 from __future__ import annotations

@@ -158,3 +158,59 @@ class TestStatus:
         status = MissingEngine("").status()
         assert status.available is False
         assert status.detail == "install the thing"
+
+
+class TestOversizedOutputIsNotReadIntoMemory:
+    def test_the_size_check_happens_before_the_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The limit has to be applied to the directory entry, not to the bytes.
+
+        Checking ``len(pdf_bytes) > MAX_PDF_BYTES`` after ``read_bytes()`` -- what
+        this used to do -- means the runaway document is already resident by the
+        time it is refused, so the ceiling protected nothing it was written to
+        protect. Reading is sabotaged here: if the engine still reaches it, the
+        test fails with the sabotage rather than the size error.
+        """
+
+        def explode(self: Path) -> bytes:
+            raise AssertionError("read_bytes() was called on an over-limit PDF")
+
+        monkeypatch.setattr(Path, "read_bytes", explode)
+        script = f"open('resume.pdf','wb').write(b'%PDF' + b'x' * {MAX_PDF_BYTES + 1})"
+        with pytest.raises(CompilationError, match="over the"):
+            ScriptedEngine(script).compile("source", timeout_s=60)
+
+
+class TestVersionProbeIsCached:
+    def test_repeated_status_calls_spawn_one_subprocess(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``/health/ready`` reaches ``status()`` on every request, and both
+        container images poll it every 30 seconds. Uncached, each one spawned a
+        ``--version`` subprocess forever."""
+        from resume_tailor.render.engines import base
+
+        base._probe_binary_version.cache_clear()
+        calls = 0
+        real = base.subprocess.run
+
+        def counting_run(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(base.subprocess, "run", counting_run)
+        engine = ScriptedEngine("")
+        for _ in range(5):
+            engine.status()
+        assert calls == 1
+
+    def test_a_different_path_is_probed_separately(self) -> None:
+        """Cached on the path, so a binary installed elsewhere is still probed."""
+        from resume_tailor.render.engines import base
+
+        base._probe_binary_version.cache_clear()
+        base._probe_binary_version(sys.executable)
+        info = base._probe_binary_version.cache_info()
+        assert info.misses == 1
+        base._probe_binary_version(sys.executable)
+        assert base._probe_binary_version.cache_info().hits == 1

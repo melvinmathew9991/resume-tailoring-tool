@@ -7,6 +7,7 @@ messages, so that is all a subclass provides.
 
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import subprocess
@@ -26,6 +27,31 @@ logger = get_logger(__name__)
 MAX_PDF_BYTES = 32 * 1024 * 1024
 
 LOG_TAIL_LINES = 40
+
+
+@functools.lru_cache(maxsize=8)
+def _probe_binary_version(path: str) -> str:
+    """``<binary> --version``, cached on the resolved path.
+
+    ``status()`` is not a rare call: ``/health/ready`` reaches it on every
+    request, and both container images run a ``HEALTHCHECK`` against that
+    endpoint every 30 seconds. Uncached, each one spawned a subprocess --
+    roughly 50 ms of process creation, forever, to re-learn a string that only
+    changes when the toolchain is reinstalled.
+
+    Cached on the path rather than on the engine instance, so that a caller
+    which builds a fresh engine (``registry.available_engines`` does) still
+    hits, while a binary installed at a different location is still probed.
+    """
+    try:
+        proc = subprocess.run(
+            [path, "--version"], capture_output=True, text=True, timeout=15, check=False
+        )
+    except (OSError, subprocess.SubprocessError):  # pragma: no cover - environment specific
+        return ""
+    return (
+        (proc.stdout or proc.stderr).strip().splitlines()[0] if proc.stdout or proc.stderr else ""
+    )
 
 
 @dataclass(frozen=True)
@@ -89,17 +115,7 @@ class SubprocessEngine(ABC):
         return EngineStatus(self.name, True, detail=path, version=self._probe_version(path))
 
     def _probe_version(self, path: str) -> str:
-        try:
-            proc = subprocess.run(
-                [path, "--version"], capture_output=True, text=True, timeout=15, check=False
-            )
-        except (OSError, subprocess.SubprocessError):  # pragma: no cover - environment specific
-            return ""
-        return (
-            (proc.stdout or proc.stderr).strip().splitlines()[0]
-            if proc.stdout or proc.stderr
-            else ""
-        )
+        return _probe_binary_version(path)
 
     def _subprocess_env(self, workdir: Path) -> dict[str, str]:
         """A deliberately boring environment.
@@ -175,19 +191,24 @@ class SubprocessEngine(ABC):
                     exit_code=proc.returncode,
                 )
 
+            # Size checked from the directory entry, before the read. Checking
+            # after `read_bytes()` -- which is what this did -- means a runaway
+            # document is already resident in memory by the time it is refused,
+            # so the limit protected nothing it was written to protect.
+            size = pdf_path.stat().st_size
+            if size > MAX_PDF_BYTES:
+                raise CompilationError(
+                    f"generated PDF is {size / 1e6:.1f} MB, over the "
+                    f"{MAX_PDF_BYTES / 1e6:.0f} MB limit",
+                    log_tail=_tail(log_text),
+                )
+
             pdf_bytes = pdf_path.read_bytes()
 
         if not pdf_bytes.startswith(b"%PDF"):
             raise CompilationError(
                 f"{self.name} produced a file that is not a PDF", log_tail=_tail(log_text)
             )
-        if len(pdf_bytes) > MAX_PDF_BYTES:
-            raise CompilationError(
-                f"generated PDF is {len(pdf_bytes) / 1e6:.1f} MB, over the "
-                f"{MAX_PDF_BYTES / 1e6:.0f} MB limit",
-                log_tail=_tail(log_text),
-            )
-
         logger.debug("engine.compiled", engine=self.name, bytes=len(pdf_bytes))
         return CompiledPdf(pdf_bytes=pdf_bytes, log=log_text, engine=self.name)
 

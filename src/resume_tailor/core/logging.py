@@ -27,8 +27,26 @@ _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 _PHONE_RE = re.compile(r"(?<!\w)(?:\+\d{1,3}[\s-]?)?(?:\d[\s-]?){9,14}\d(?!\w)")
 _REDACTED = "[redacted]"
 
-_SENSITIVE_KEYS = frozenset(
-    {"email", "phone", "location", "name", "api_key", "authorization", "x-api-key"}
+#: Keys whose *value* is blanked outright wherever it appears, because the key
+#: alone is enough to know the value is personal or secret.
+#:
+#: ``name`` is deliberately **not** here, even though the resume header has one.
+#: It is far too common a key to blank globally: ``EngineStatus.name`` travels
+#: inside the readiness report, so ``app.not_ready`` used to report the PDF
+#: engine as ``[redacted]`` -- erasing the single field that log line exists to
+#: communicate. The personal name is covered by :data:`_SENSITIVE_PATHS`
+#: instead, which blanks it where it actually occurs rather than everywhere the
+#: word appears.
+_SENSITIVE_KEYS = frozenset({"email", "phone", "location", "api_key", "authorization", "x-api-key"})
+
+#: ``(container key, field)`` pairs. The field is blanked only inside a dict
+#: logged under that container, which is where personal data actually travels.
+_SENSITIVE_PATHS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("personal", "name"),
+        ("personal_info", "name"),
+        ("profile", "name"),
+    }
 )
 
 
@@ -37,17 +55,31 @@ def _redact_text(value: str) -> str:
     return _PHONE_RE.sub(_REDACTED, value)
 
 
-def _redact(value: Any) -> Any:
+def _redact(value: Any, container: str = "") -> Any:
+    """Redact recursively.
+
+    ``container`` is the key this value was found under, which is what lets
+    ``name`` be blanked inside a personal-info dict without blanking every
+    ``name`` in the application.
+    """
     if isinstance(value, str):
         return _redact_text(value)
     if isinstance(value, dict):
         return {
-            key: (_REDACTED if str(key).lower() in _SENSITIVE_KEYS else _redact(item))
+            key: (
+                _REDACTED
+                if _is_sensitive(str(key), container)
+                else _redact(item, container=str(key))
+            )
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        return type(value)(_redact(item) for item in value)
+        return type(value)(_redact(item, container=container) for item in value)
     return value
+
+
+def _is_sensitive(key: str, container: str) -> bool:
+    return key.lower() in _SENSITIVE_KEYS or (container.lower(), key.lower()) in _SENSITIVE_PATHS
 
 
 def redact_pii(
@@ -55,7 +87,11 @@ def redact_pii(
 ) -> structlog.types.EventDict:
     """structlog processor: strip emails/phones and blank sensitive keys."""
     return {
-        key: (_REDACTED if str(key).lower() in _SENSITIVE_KEYS else _redact(value))
+        key: (
+            _REDACTED
+            if _is_sensitive(str(key), container="")
+            else _redact(value, container=str(key))
+        )
         for key, value in event_dict.items()
     }
 
