@@ -98,6 +98,83 @@ To take a project out of circulation without deleting it, set
 `"hidden": true`. Hidden projects are excluded from listings, matching **and**
 generation.
 
+## Deploying
+
+Two supported shapes, and which one you want depends on whether you need the
+HTTP API.
+
+| | Streamlit Community Cloud | Container host |
+|---|---|---|
+| Processes | one (Streamlit, embedded client) | two (API + UI over HTTP) |
+| Public API | no | yes |
+| Engine | tectonic, from `packages.txt` | TeX Live, baked into the image |
+| Auth | none needed — nothing else is exposed | `RT_API_KEY` required |
+| Entrypoint | `streamlit_app.py` | `docker compose` |
+
+### Streamlit Community Cloud
+
+The free path. One process, no API server, nothing exposed but the UI — which
+is why it needs no API key and no CORS allowlist.
+
+1. Push the branch you want to deploy. Community Cloud can deploy any branch,
+   so deploy the branch first and merge once it is confirmed working.
+2. Go to [share.streamlit.io](https://share.streamlit.io) → **Create app** →
+   **Deploy a public app from GitHub**.
+3. Fill in:
+   - **Repository**: `melvinmathew9991/resume-tailoring-tool`
+   - **Branch**: the branch from step 1
+   - **Main file path**: `streamlit_app.py` — *not* `ui/app.py`
+   - **Python version**: 3.11 or 3.12
+4. Deploy. No secrets are required; `streamlit_app.py` configures itself.
+
+**Main file path is the one setting that matters.** Pointing at `ui/app.py`
+deploys an app that boots, renders, and then fails on the first click:
+`RT_UI_MODE` defaults to `http`, so the client tries to reach an API server
+that does not exist on that host. `streamlit_app.py` sets it to `embedded`.
+
+The first build is slow — apt fetches tectonic, pip builds the project — and
+the first PDF is slower still, because tectonic downloads the TeX packages the
+template needs before it can typeset anything. Both are one-off per cold start.
+
+**Verifying it worked.** Open the app and check the engine banner. If it names
+`tectonic`, the toolchain installed and PDFs are real. If it warns that PDFs
+are blank placeholders, `apt install tectonic` failed on their builder and the
+app has fallen back to the fake engine — matching and LaTeX preview still work,
+generation does not. That fallback is deliberate: a degraded demo beats no demo
+when the cause is somebody else's infrastructure.
+
+**Known limits**, none of which this project can raise: roughly 1 GB of memory,
+the app sleeps after 12 hours without traffic, and a cold start pays the
+tectonic download again. If a compile is killed rather than failing, memory is
+the reason — cut the number of selected projects, or move to a container host.
+
+### Container host
+
+The topology the project was built and CI-tested for: two services, real TeX
+Live baked in, no network needed at compile time.
+
+```bash
+export RT_API_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(32))")
+export PUBLIC_UI_ORIGIN=https://resume.example.com
+
+docker compose -f docker/docker-compose.yml \
+               -f docker/docker-compose.prod.yml up -d --build
+```
+
+The overlay sets `RT_ENVIRONMENT=prod`, which is the point of it: config
+refuses to start with debug on or a CORS wildcard, and the engine registry
+refuses to fall back to the fake engine. Without it an image whose TeX Live had
+gone missing would come up healthy and serve blank PDFs.
+
+Both ports stay bound to `127.0.0.1`. Put a reverse proxy in front to terminate
+TLS, and make sure it forwards websocket upgrades — Streamlit loads and then
+hangs on its first rerun otherwise, which looks like an application bug and is
+not.
+
+Check `docker compose logs api` on first boot. `RT_PDF_ENGINE=pdflatex` means a
+missing toolchain is a startup failure rather than a silent substitution, so
+the container either works or says why.
+
 ## Deployment posture
 
 Before exposing beyond localhost, work through the checklist at the end of

@@ -1,0 +1,54 @@
+# Build context hygiene.
+#
+# Without this file the context is ~42 MB, almost all of it .git history, test
+# caches and byte-compiled Python that neither image copies. That cost is paid
+# on every `docker build` -- including the one CI runs on every push -- and a
+# stale __pycache__ landing in an image is a genuinely confusing failure.
+#
+# Both Dockerfiles copy an explicit, short list (pyproject.toml, README.md,
+# src/, plus data/ for the API and ui/ for the frontend), so everything else is
+# excluded here rather than trusted not to matter.
+
+.git
+.gitignore
+.github
+
+# Python build and cache artefacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+mutants/
+
+# Not needed at runtime
+tests/
+docs/
+sample_output/
+tasks.py
+
+# Local configuration must never be baked into an image
+.env
+.envrc
+
+# Editor and OS noise
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

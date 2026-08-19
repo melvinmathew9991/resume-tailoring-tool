@@ -1,0 +1,18 @@
+# apt packages for Streamlit Community Cloud (Debian).
+#
+# Tectonic, not TeX Live, and the choice is forced by the host rather than
+# preferred. Community Cloud caps an app at roughly 1 GB of memory and is not
+# generous with disk; the template needs titlesec and enumitem, which live in
+# texlive-latex-extra, and that package alone is well over a gigabyte before
+# texlive-latex-recommended and the fonts are counted.
+#
+# Tectonic is a single ~30 MB binary that fetches only the packages a document
+# actually uses. The trade is that the first compile after a cold start pulls
+# those over the network and is slow -- and Community Cloud sleeps an app after
+# 12 hours without traffic, so that cost is paid again on each wake. Every
+# compile after it is warm.
+#
+# This is also why the API container does the opposite: docker/Dockerfile.api
+# bakes in TeX Live precisely so it never needs egress at compile time. Same
+# project, different constraint, different answer.
+tectonic

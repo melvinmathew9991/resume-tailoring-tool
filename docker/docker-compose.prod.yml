@@ -1,0 +1,62 @@
+# Production overlay. Apply on top of the base file:
+#
+#   docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d
+#
+# The base file is the local development topology: it binds both ports to
+# 127.0.0.1, runs with RT_ENVIRONMENT=docker, and needs no secrets. That is the
+# right default for a laptop and the wrong one for a host, so the differences
+# live here rather than being edited into the base file before each deploy.
+#
+# Required in the environment (or a .env beside this file, which is
+# .dockerignore'd and must never be baked into an image):
+#
+#   RT_API_KEY        a long random secret. Generate with:
+#                       python -c "import secrets; print(secrets.token_urlsafe(32))"
+#   PUBLIC_UI_ORIGIN  the browser-visible origin of the UI, e.g.
+#                     https://resume.example.com -- scheme and host, no path.
+#
+# Ports are inherited from the base file, which already binds both to
+# 127.0.0.1. That is the correct binding here too: the host's reverse proxy
+# terminates TLS and is the only thing that should face the internet. Neither
+# 8000 nor 8501 is published directly.
+
+services:
+  api:
+    environment:
+      # The posture switch, and the reason this overlay exists at all.
+      #
+      # `prod` makes core/config.py refuse to start with debug on or a CORS
+      # wildcard, and makes the engine registry refuse to fall back to the fake
+      # engine. Without it, an image whose TeX Live install had somehow gone
+      # missing would come up healthy and quietly serve blank placeholder PDFs
+      # -- the exact silent-failure class this project exists to eliminate.
+      RT_ENVIRONMENT: prod
+      RT_DEBUG: "false"
+      RT_LOG_JSON: "true"
+
+      # Fail loudly at startup if the deployer forgot either of these, rather
+      # than defaulting to something that merely looks like it works.
+      RT_API_KEY: ${RT_API_KEY:?set RT_API_KEY to a long random secret}
+      RT_CORS_ORIGINS: ${PUBLIC_UI_ORIGIN:?set PUBLIC_UI_ORIGIN to the browser-visible UI origin}
+
+      # Never `auto` in production. `auto` probes and picks what it finds;
+      # naming the engine means a missing toolchain is a startup failure with a
+      # clear message instead of a silent substitution.
+      RT_PDF_ENGINE: pdflatex
+    restart: always
+
+  ui:
+    environment:
+      RT_ENVIRONMENT: prod
+      RT_LOG_JSON: "true"
+      RT_UI_MODE: http
+      RT_API_BASE_URL: http://api:8000
+      # The UI is the only client, so it is the one that holds the key.
+      RT_API_KEY: ${RT_API_KEY:?set RT_API_KEY to a long random secret}
+      # Streamlit sits behind the same proxy. XSRF protection stays on; the
+      # proxy must forward websocket upgrades or the app loads and then hangs
+      # on its first rerun, which looks like an application bug and is not.
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_SERVER_ENABLE_CORS: "false"
+      STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION: "true"
+    restart: always
