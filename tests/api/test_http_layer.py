@@ -77,9 +77,14 @@ class TestBodySizeLimit:
             response = client.post("/api/v1/match", json={"jd_text": "x" * 1000})
             assert response.status_code == 200
 
-    def test_lying_content_length_is_still_caught(self, settings: Settings, engine) -> None:
-        """A chunked request can omit Content-Length entirely, so the streamed
-        body is measured too rather than trusting the header."""
+    def test_an_oversized_body_is_caught_at_a_low_limit(self, settings: Settings, engine) -> None:
+        """The declared-Content-Length path, at a limit well under the body.
+
+        httpx sets Content-Length on a bytes body, so this exercises the header
+        check rather than the streaming one -- the docstring here used to claim
+        the opposite. The request that genuinely omits the header is in
+        TestBodyLimitEnforcedWhileStreaming.
+        """
         small = settings.model_copy(update={"max_body_bytes": 512})
         with TestClient(create_app(small, engine=engine)) as client:
             response = client.post(
@@ -213,3 +218,155 @@ class TestOpenApiContract:
     def test_docs_pages_render(self, client: TestClient) -> None:
         assert client.get("/docs").status_code == 200
         assert client.get("/redoc").status_code == 200
+
+
+class TestBodyLimitEnforcedWhileStreaming:
+    """A chunked request can simply omit ``Content-Length``.
+
+    This was the specific hole: the limiter buffered the whole body with
+    ``await request.body()`` and measured it afterwards, so an unbounded upload
+    was already resident in memory by the time it was refused. The docstring and
+    the security doc both claimed the streaming check that was not there.
+    """
+
+    @pytest.fixture
+    def tight(self, settings: Settings, engine: object) -> Iterator[TestClient]:
+        app = create_app(settings.model_copy(update={"max_body_bytes": 2048}), engine=engine)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            yield client
+
+    @staticmethod
+    def _chunks(payload: bytes, size: int = 256):
+        for start in range(0, len(payload), size):
+            yield payload[start : start + size]
+
+    def test_declared_content_length_over_the_limit_is_413(self, tight: TestClient) -> None:
+        response = tight.post("/api/v1/match", json={"jd_text": "x" * 5000})
+        assert response.status_code == 413
+        assert response.json()["code"] == "payload_too_large"
+
+    def test_chunked_body_over_the_limit_is_413(self, tight: TestClient) -> None:
+        """No Content-Length at all, so only the counting check can catch it."""
+        payload = json.dumps({"jd_text": "x" * 5000}).encode()
+        response = tight.post(
+            "/api/v1/match",
+            content=self._chunks(payload),
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 413, response.text
+        assert response.json()["code"] == "payload_too_large"
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+    def test_chunked_body_under_the_limit_still_reaches_the_route(self, tight: TestClient) -> None:
+        """The limiter must not eat the body it lets through."""
+        payload = json.dumps({"jd_text": "python engineer"}).encode()
+        response = tight.post(
+            "/api/v1/match",
+            content=self._chunks(payload, size=4),
+            headers={"Content-Type": "application/json"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["ranked_projects"]
+
+    def test_a_body_at_the_limit_is_accepted(self, tight: TestClient) -> None:
+        jd = "x" * (2048 - len(json.dumps({"jd_text": ""}).encode()))
+        response = tight.post("/api/v1/match", json={"jd_text": jd})
+        assert response.status_code == 200, response.text
+
+    def test_get_requests_are_unaffected(self, tight: TestClient) -> None:
+        assert tight.get("/api/v1/projects").status_code == 200
+
+
+class TestRateLimiterDoesNotLeak:
+    def test_quiet_clients_are_swept(self, settings: Settings, engine: object) -> None:
+        """Pruning on the hot path only touches the key being used, so a client
+        that makes one request and never returns used to stay in the dict for the
+        life of the process."""
+        from resume_tailor.api.middleware import RateLimitMiddleware
+
+        limiter = RateLimitMiddleware(app=object(), default_per_minute=10, generate_per_minute=2)
+        now = 1000.0
+        for index in range(50):
+            limiter._hits[(f"10.0.0.{index}", "default")].append(now)
+        assert len(limiter._hits) == 50
+
+        limiter._last_sweep = now
+        limiter._sweep(now + 30.0)
+        assert len(limiter._hits) == 50, "a sweep must not run more often than its interval"
+
+        limiter._sweep(now + 3600.0)
+        assert limiter._hits == {}
+
+    def test_an_active_client_survives_a_sweep(self, settings: Settings) -> None:
+        from resume_tailor.api.middleware import RateLimitMiddleware
+
+        limiter = RateLimitMiddleware(app=object(), default_per_minute=10, generate_per_minute=2)
+        now = 1000.0
+        limiter._hits[("10.0.0.1", "default")].append(now)
+        limiter._hits[("10.0.0.2", "default")].append(now - 600.0)
+        limiter._last_sweep = now - 3600.0
+        limiter._sweep(now)
+        assert list(limiter._hits) == [("10.0.0.1", "default")]
+
+
+class TestApiKeyComparison:
+    """The comparison itself, as distinct from the policy tested above.
+
+    ``secrets.compare_digest`` rather than ``!=``: a plain comparison returns on
+    the first differing byte and leaks the shared-prefix length to anyone who can
+    time the response, which is precisely the caller this key exists to keep out.
+    """
+
+    @pytest.fixture
+    def secured(self, settings: Settings, engine: object) -> Iterator[TestClient]:
+        app = create_app(settings.model_copy(update={"api_key": "s3cret"}), engine=engine)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            yield client
+
+    @pytest.mark.parametrize(
+        "supplied",
+        [
+            "",
+            "s",
+            "s3cre",
+            "s3cret ",
+            "S3CRET",
+            "s3cretlonger",
+        ],
+    )
+    def test_every_wrong_key_is_401_never_500(self, secured: TestClient, supplied: str) -> None:
+        response = secured.get("/api/v1/projects", headers={"X-API-Key": supplied})
+        assert response.status_code == 401, response.text
+
+    @pytest.mark.parametrize("raw", [b"cl\xe9", b"\xe9\xe8\xea", b"\xff" * 6])
+    def test_a_non_ascii_key_is_401_not_500(self, secured: TestClient, raw: bytes) -> None:
+        """Header bytes outside ASCII must not crash the comparison.
+
+        Starlette decodes header values as latin-1, so a header can legitimately
+        carry a str with characters above 127 -- and ``secrets.compare_digest``
+        refuses a str containing any of them. Comparing as str would turn a
+        failed auth attempt into an unhandled 500, a worse outcome than the
+        timing leak the constant-time comparison exists to close. The header is
+        sent as raw bytes because httpx will not encode a non-ASCII str into
+        one, which is exactly why this case is easy to miss.
+        """
+        response = secured.get("/api/v1/projects", headers={"X-API-Key": raw})
+        assert response.status_code == 401, response.text
+
+
+class TestMalformedContentLength:
+    def test_a_junk_content_length_header_does_not_bypass_the_limit(
+        self, settings: Settings, engine
+    ) -> None:
+        """A header that will not parse must fall through to the counting check
+        rather than being treated as a pass."""
+        small = settings.model_copy(update={"max_body_bytes": 512})
+        with TestClient(create_app(small, engine=engine), raise_server_exceptions=False) as client:
+            payload = json.dumps({"jd_text": "x" * 4000}).encode()
+            response = client.post(
+                "/api/v1/match",
+                content=payload,
+                headers={"Content-Type": "application/json", "Content-Length": "not-a-number"},
+            )
+            assert response.status_code in (400, 413), response.text
+            assert response.status_code < 500

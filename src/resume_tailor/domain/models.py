@@ -16,6 +16,8 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from resume_tailor.domain.latex import require_href_safe
+
 KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,63}$")
 #: ``owner/repo`` or a bare ``owner``. The bare form is a profile link rather
 #: than a project link -- two entries in the current bank use it, so it is
@@ -171,9 +173,23 @@ class PersonalInfo(StrictModel):
     def _validate_url(cls, value: str) -> str:
         if value and not value.startswith(("https://", "http://")):
             raise ValueError("URLs must start with http:// or https://")
-        if any(char in value for char in "{}%#\\ "):
-            raise ValueError("URL contains characters that are unsafe inside \\href{}")
-        return value
+        return require_href_safe(value, "URL")
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, value: str) -> str:
+        """The same ``\\href{}`` check the URL fields get.
+
+        The renderer builds ``\\href{mailto:<email>}{<escaped email>}``: the
+        display half is escaped, the *target* half is interpolated raw, exactly
+        as it must be, because escaping a link target breaks the link. That made
+        this field the one route into an ``\\href{}`` argument with no
+        validation behind it -- and an injected ``\\href`` is invisible to every
+        downstream check, since the command is on the audit allowlist and a
+        balanced payload passes the brace count. It is validated here now, on
+        the same footing as the URLs, rather than escaped or trusted.
+        """
+        return require_href_safe(value, "email")
 
     def merged_with(self, override: PersonalInfo | dict[str, Any] | None) -> PersonalInfo:
         """Return a copy with non-empty override fields applied.

@@ -195,3 +195,72 @@ class TestDocumentStore:
         ids = {store.put(b"x", "x.pdf", 1).document_id for _ in range(20)}
         assert len(ids) == 20
         assert all(len(document_id) >= 16 for document_id in ids)
+
+
+class TestRedactionIsScopedNotBlanket:
+    """``name`` is too common a key to blank everywhere.
+
+    Blanking it globally erased ``EngineStatus.name`` out of the readiness
+    report, so ``app.not_ready`` announced the PDF engine as ``[redacted]`` --
+    the single field that log line exists to communicate. The personal name is
+    covered by its container instead.
+    """
+
+    def test_the_engine_name_survives_the_readiness_log(self) -> None:
+        result = redact_pii(
+            None,
+            "warning",
+            {
+                "event": "app.not_ready",
+                "checks": {
+                    "pdf_engine": {"name": "tectonic", "ok": False, "version": "0.15.0"},
+                    "project_bank": {"ok": True, "projects": 14},
+                },
+            },
+        )
+        assert result["checks"]["pdf_engine"]["name"] == "tectonic"
+        assert result["checks"]["project_bank"]["projects"] == 14
+
+    @pytest.mark.parametrize("container", ["personal", "personal_info", "profile"])
+    def test_a_personal_name_is_still_blanked(self, container: str) -> None:
+        result = redact_pii(None, "info", {container: {"name": "Real Person", "title": "SWE"}})
+        assert result[container]["name"] == "[redacted]"
+        assert result[container]["title"] == "SWE"
+
+    def test_a_personal_name_inside_a_list_is_blanked(self) -> None:
+        result = redact_pii(None, "info", {"personal": [{"name": "Real Person"}]})
+        assert result["personal"][0]["name"] == "[redacted]"
+
+    def test_an_email_anywhere_is_still_blanked(self) -> None:
+        result = redact_pii(None, "info", {"checks": {"smtp": {"email": "a@b.c"}}})
+        assert result["checks"]["smtp"]["email"] == "[redacted]"
+
+    def test_free_text_scrubbing_is_unaffected_by_the_container(self) -> None:
+        result = redact_pii(None, "info", {"checks": {"detail": "mail real@example.com"}})
+        assert "real@example.com" not in result["checks"]["detail"]
+
+
+class TestDataDirDefault:
+    def test_the_checkout_layout_is_used_when_it_exists(self) -> None:
+        """In an editable install the repository's own data/ is the answer."""
+        from tests.conftest import REAL_DATA_DIR
+
+        assert Settings().data_dir == REAL_DATA_DIR
+        assert Settings().bank_path.is_file()
+
+    def test_it_falls_back_to_the_working_directory_off_checkout(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+    ) -> None:
+        """Installed as a wheel, walking up from __file__ lands on the
+        environment root, which has no data/ and never will. Both images set
+        RT_DATA_DIR and so never noticed; a plain pip install failed at the
+        first request with a path nobody would recognise."""
+        from resume_tailor.core import config
+
+        monkeypatch.setattr(config, "_REPO_ROOT", tmp_path / "not-a-checkout")
+        monkeypatch.chdir(tmp_path)
+        assert config._default_data_dir() == tmp_path / "data"
+
+    def test_the_environment_still_wins(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        monkeypatch.setenv("RT_DATA_DIR", str(tmp_path))
+        assert Settings().data_dir == tmp_path

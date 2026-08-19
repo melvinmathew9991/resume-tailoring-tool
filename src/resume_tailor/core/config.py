@@ -26,6 +26,26 @@ _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _PACKAGE_ROOT.parents[1]
 
 
+def _default_data_dir() -> Path:
+    """Where ``project_bank.json`` and ``profile.yaml`` live, by default.
+
+    Walking up from ``__file__`` gives the repository root under
+    ``pip install -e``, and something meaningless under a real wheel: from
+    ``site-packages/resume_tailor`` the same two steps land on the environment
+    root, which has no ``data/`` and never will. Both container images set
+    ``RT_DATA_DIR`` and so never noticed, but a plain ``pip install`` of this
+    package failed at the first request with a ``BankError`` quoting a path no
+    one would recognise.
+
+    So the checkout layout is used when it is actually there, and the working
+    directory is the fallback -- which is the right answer for an installed
+    package run from a directory that holds the content. ``RT_DATA_DIR``
+    overrides both, and remains the answer for anything deployed.
+    """
+    packaged = _REPO_ROOT / "data"
+    return packaged if packaged.is_dir() else Path.cwd() / "data"
+
+
 class Settings(BaseSettings):
     """Runtime configuration, read from the environment or a ``.env`` file."""
 
@@ -61,7 +81,7 @@ class Settings(BaseSettings):
     """Optional shared secret. When set, every /api route requires X-API-Key."""
 
     # -- paths --------------------------------------------------------------
-    data_dir: Path = _REPO_ROOT / "data"
+    data_dir: Path = Field(default_factory=_default_data_dir)
     bank_filename: str = "project_bank.json"
     profile_filename: str = "profile.yaml"
     template_dir: Path = _PACKAGE_ROOT / "render" / "templates"

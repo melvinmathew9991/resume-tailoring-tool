@@ -68,7 +68,29 @@ ENCODING: list[str] = [
     "﻿" + "bom",
 ]
 
-ALL_PAYLOADS: list[str] = FILE_AND_SHELL + REDEFINITION + DENIAL_OF_SERVICE + STRUCTURAL + ENCODING
+#: Aimed at the one value on the page that cannot be escaped: an ``\href{}``
+#: target. Escaping a link breaks the link, so these are stopped by shape
+#: validation or not at all -- and nothing downstream sees them, because
+#: ``\href`` is on the audit allowlist and a payload that closes the brace it
+#: opens passes the brace-balance check too. The header email was the field with
+#: no such validation, so ``x} \href{...}{CLICK ME`` put an attacker-chosen
+#: link in the resume header and returned 200 with no warnings.
+LINK_TARGETS: list[str] = [
+    "a}{b",
+    r"x} \href{https://evil.invalid}{CLICK ME",
+    r"me@example.com} \textbf{spoofed",
+    "a#b@example.com",
+    "a%b@example.com",
+    "has space@example.com",
+    r"back\slash@example.com",
+    'quote"@example.com',
+    "newline\n@example.com",
+    "tab\t@example.com",
+]
+
+ALL_PAYLOADS: list[str] = (
+    FILE_AND_SHELL + REDEFINITION + DENIAL_OF_SERVICE + STRUCTURAL + ENCODING + LINK_TARGETS
+)
 
 #: Payloads that must be *rejected* outright, because silently printing them as
 #: body text on a resume is not an acceptable outcome either.

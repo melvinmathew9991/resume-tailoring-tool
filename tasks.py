@@ -63,6 +63,10 @@ def task_cov() -> None:
         "-m",
         "not integration and not latex and not slow",
         "--cov=resume_tailor",
+        # Both roots. An explicit --cov=<pkg> overrides `source` in
+        # pyproject.toml entirely, so naming one package here would silently
+        # drop the other from the measurement.
+        "--cov=ui",
         "--cov-report=term-missing",
         "--cov-report=xml",
     )

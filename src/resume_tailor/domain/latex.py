@@ -11,8 +11,13 @@ conflating them is exactly how the original code grew bugs:
    exact inverse of ``escape_latex`` (proven by a Hypothesis round-trip
    property); ``latex_to_display_text`` additionally strips the ``\\textbf{}``
    markup that the bank stores.
-3. :func:`audit_rendered_source` -- a defence-in-depth allowlist check over the
-   *fully rendered* document, run immediately before it reaches the compiler.
+3. :func:`find_unknown_commands` / :func:`find_unescaped_specials` /
+   :func:`count_unbalanced_braces` -- the primitives behind
+   :func:`resume_tailor.render.renderer.audit_source`, a defence-in-depth
+   allowlist check over the *fully rendered* document, run immediately before it
+   reaches the compiler.
+4. :func:`require_href_safe` -- the shape check for the one kind of value that
+   cannot be escaped at all: a link target.
 
 Design notes on what changed from the original implementation
 -------------------------------------------------------------
@@ -76,6 +81,43 @@ def escape_latex(text: object) -> str:
     if not isinstance(text, str):
         text = str(text)
     return _ESCAPE_RE.sub(lambda match: ESCAPE_MAP[match.group()], strip_control_chars(text))
+
+
+# --- href targets -----------------------------------------------------------
+
+#: Characters that cannot appear inside an ``\href{}`` argument without either
+#: breaking out of it or silently truncating the line. Deliberately a shared
+#: constant rather than a check copy-pasted per field.
+#:
+#: The reason it is shared: this check existed on ``linkedin_url`` and
+#: ``github_url`` but not on ``email``, even though the renderer interpolates
+#: the email straight into ``\href{mailto:...}``. Escaping is not an option for
+#: a link target -- escaping breaks the URL, which is why these fields are
+#: shape-validated instead -- so a field that reached ``\href{}`` without this
+#: check had no protection at all. Nothing downstream caught it either:
+#: ``\href`` is on :data:`ALLOWED_COMMANDS`, so an injected link is by
+#: construction invisible to the allowlist audit, and a payload that closes the
+#: brace it opens is invisible to the brace-balance check too.
+HREF_UNSAFE_CHARS: frozenset[str] = frozenset('{}%#\\ \t\n\r"')
+
+
+def find_href_unsafe_chars(value: str) -> list[str]:
+    """Characters in ``value`` that must never reach an ``\\href{}`` argument."""
+    unsafe = {
+        char for char in value if char in HREF_UNSAFE_CHARS or ord(char) < 0x20 or ord(char) == 0x7F
+    }
+    return sorted(unsafe)
+
+
+def require_href_safe(value: str, kind: str = "value") -> str:
+    """Return ``value`` unchanged, or raise ``ValueError`` naming what is wrong."""
+    unsafe = find_href_unsafe_chars(value)
+    if unsafe:
+        raise ValueError(
+            f"{kind} contains characters that are unsafe inside \\href{{}}: "
+            + ", ".join(repr(char) for char in unsafe)
+        )
+    return value
 
 
 # --- unescaping -------------------------------------------------------------

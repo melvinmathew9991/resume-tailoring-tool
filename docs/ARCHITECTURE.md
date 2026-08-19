@@ -144,7 +144,7 @@ renderer" failure *unrepresentable* rather than merely guarded against — see
 | Module | Responsibility |
 |---|---|
 | `template_env.py` | Jinja environment using `\VAR{}` / `\BLOCK{}` delimiters instead of braces. |
-| `renderer.py` | `ResumeSpec` → `.tex`, then `audit_source()` — the allowlist check — before anything reaches a compiler. |
+| `renderer.py` | `ResumeSpec` → `.tex`, then `audit_source()` — the allowlist check — before anything reaches a compiler. Also the single `_href()` chokepoint every link on the page is built through. |
 | `pagefit.py` | The font ladder and the page-fit guarantee. Counts pages in-process with `pypdf`. |
 | `engines/base.py` | `PdfEngine` protocol and `SubprocessEngine` — temp dir, env sandbox, timeout, size cap, typed failures. |
 | `engines/tectonic.py` | Default engine. One self-contained binary. |
@@ -163,8 +163,8 @@ renderer" failure *unrepresentable* rather than merely guarded against — see
 
 | Module | Responsibility |
 |---|---|
-| `main.py` | `create_app()` factory, lifespan, middleware stack, the four exception handlers. |
-| `middleware.py` | `RequestContextMiddleware` (correlation ids), `BodySizeLimitMiddleware`, `RateLimitMiddleware`. |
+| `main.py` | `create_app()` factory (which is also where the service is built — *not* the lifespan handler), middleware stack, the four exception handlers. |
+| `middleware.py` | `RequestContextMiddleware` (correlation ids), `BodySizeLimitMiddleware` (pure ASGI — see below), `RateLimitMiddleware`. |
 | `schemas.py` | Request and response models — the public contract, separate from domain models. |
 | `v1/` | `health`, `meta`, `projects`, `match`, `resume`. |
 
@@ -346,6 +346,56 @@ warning**, logged and surfaced on the response, because it is a content-quality
 signal rather than an execution risk. That distinction matters: the equivalent
 check in the original code was well written and never called from anywhere
 (defect B8).
+
+### Link targets: the one value that is never escaped
+
+Stages 1-4 above handle everything that is *typeset*. A link **target** is the
+exception, and it needs its own paragraph because the diagram does not describe
+it: `\href{https://example.com/a_b}` has to reach the document literally, since
+escaping the URL breaks the link.
+
+That removes stage 1 for those fields, and stage 4 cannot substitute for it.
+`\href` is a command the template legitimately emits, so it is on the allowlist
+by necessity, and an allowlist cannot tell a link the renderer built from one a
+caller smuggled in. The brace counter is no help either — `x} \href{...}{Click`
+is perfectly balanced. So for a link target, *shape validation is the entire
+defence*, and a link-bearing field without one has none.
+
+The design therefore does two things rather than one:
+
+1. **`domain.latex.require_href_safe`** is a single shared check, applied by the
+   model validators to `github`, `linkedin_url`, `github_url` **and `email`**.
+   One function rather than a check per field, because the fields drifting apart
+   is exactly what went wrong: `email` reached `\href{mailto:...}` with only a
+   length cap while the two URLs beside it were validated.
+2. **`render.renderer._href`** builds every link in the document and re-applies
+   the same check. This is why `github_link` is composed in Python and passed to
+   the template as one string, rather than the template assembling
+   `\href{\VAR{proj.github_url}}{...}` itself — a template that writes its own
+   link is a link the chokepoint cannot see.
+
+The second layer is unreachable through the API, since the models refuse the
+value first. It exists for the failure that actually occurred: a new field
+reaching a link, and nobody remembering that link targets are special.
+
+### Enforcing the body limit without buffering it
+
+`BodySizeLimitMiddleware` is plain ASGI while the other two are
+`BaseHTTPMiddleware`, and the asymmetry is forced rather than stylistic.
+Starlette's `_CachedRequest` documents the constraint: inside a `dispatch`
+method, `await request.body()` buffers the whole body before the handler sees a
+byte of it, and `request.stream()` leaves downstream with an empty body. A
+`BaseHTTPMiddleware` size limiter therefore has exactly one option — buffer
+everything, then measure — which means an unbounded chunked upload is fully
+resident in memory at the moment it is refused. That is the attack the
+middleware exists to stop.
+
+Wrapping `receive` avoids the dilemma: bytes are counted as the application
+pulls them, and the request is cut off at the first chunk that crosses the
+limit. On overflow the wrapper signals a disconnect and the middleware sends its
+own 413 — raising instead does not work, because FastAPI wraps anything escaping
+`await request.body()` into a generic "error parsing the body" 400 that names
+neither the limit nor the problem.
 
 ### Engine sandboxing
 

@@ -183,3 +183,47 @@ class TestResumeSpec:
                 max_pages=pages,
                 bank_version="x",
             )
+
+
+class TestEmailIsValidatedLikeAUrl:
+    """The email reaches an href target too, and used to be the one that did not.
+
+    The renderer builds a mailto link from it, so the raw value lands inside an
+    href argument exactly as the URLs do. It carried only a length cap, which
+    made it the single unguarded route into a link target.
+    """
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            "me@example.com",
+            "first_last@example.com",
+            "me+tag@example.co.uk",
+            "a.b.c@sub.domain.example",
+            "",
+        ],
+    )
+    def test_ordinary_addresses_are_accepted(self, email: str) -> None:
+        assert PersonalInfo.model_validate({"name": "X", "email": email}).email == email
+
+    @pytest.mark.parametrize(
+        "email",
+        [
+            "a}{b@example.com",
+            "me@example.com} more",
+            "a#b@example.com",
+            "a%b@example.com",
+            "has space@example.com",
+            'quote"@example.com',
+        ],
+    )
+    def test_unsafe_addresses_are_rejected(self, email: str) -> None:
+        with pytest.raises(ValidationError):
+            PersonalInfo.model_validate({"name": "X", "email": email})
+
+    def test_merged_with_revalidates_the_email_too(self) -> None:
+        """model_copy(update=...) skips validators, and an override arrives over
+        HTTP -- so the merge path needs the check as much as construction does."""
+        base = PersonalInfo.model_validate({"name": "X", "email": "safe@example.com"})
+        with pytest.raises(ValueError, match="unsafe inside"):
+            base.merged_with({"email": "evil}{payload@example.com"})

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from resume_tailor.core.config import Settings
 from resume_tailor.core.errors import TemplateRenderError, UnsafeContentError
 from resume_tailor.domain.models import PersonalInfo, Profile, Project, ResumeSpec
-from resume_tailor.render.renderer import audit_source, build_context, render_source
+from resume_tailor.render.renderer import _href, audit_source, build_context, render_source
 from resume_tailor.services.resume_service import ResumeService
 
 pytestmark = pytest.mark.unit
@@ -175,3 +177,42 @@ def test_personal_info_model_rejects_reserved_template_names() -> None:
     for reserved in ("summary", "projects", "skills", "font_size", "line_spacing"):
         with pytest.raises(ValueError, match=r"Extra inputs|extra"):
             PersonalInfo.model_validate({"name": "X", reserved: "boom"})
+
+
+class TestEveryLinkGoesThroughOneChokepoint:
+    """Defence in depth behind the model validators.
+
+    The models already refuse an unsafe link target, so this branch should be
+    unreachable through the API. It exists for the case that actually happened
+    once: a field that reaches a link without anyone remembering to validate it.
+    A check that lives only on the model is a check a future field can miss.
+    """
+
+    def test_an_unsafe_target_is_refused_at_the_renderer(self) -> None:
+        with pytest.raises(UnsafeContentError, match="unsafe inside"):
+            _href("mailto:a}{b@example.com", "label")
+
+    def test_the_error_carries_the_offending_target(self) -> None:
+        with pytest.raises(UnsafeContentError) as excinfo:
+            _href("https://example.com/{x}", "label")
+        assert excinfo.value.context["target"] == "https://example.com/{x}"
+
+    def test_a_safe_target_is_built_normally(self) -> None:
+        assert _href("mailto:me@example.com", "me") == r"\href{mailto:me@example.com}{me}"
+
+    def test_the_project_link_is_built_here_not_in_the_template(
+        self, service: ResumeService
+    ) -> None:
+        """The template used to assemble its own href from two context values.
+
+        A template that writes its own link is a link the chokepoint cannot see,
+        so the composed string is passed in instead.
+        """
+        spec = service.build_spec(["proj_a"])
+        context = build_context(spec, 9.6, 11.5)
+        project = context["projects"][0]
+        assert project["github_link"].startswith(r"\href{https://github.com/")
+        template = (
+            Path(service._settings.template_dir) / service._settings.template_name
+        ).read_text(encoding="utf-8")
+        assert r"\href{\VAR{proj.github_url}}" not in template
