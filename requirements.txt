@@ -1,0 +1,14 @@
+# Streamlit Community Cloud installs from this file.
+#
+# One line on purpose. pyproject.toml is the single source of truth for what
+# this project depends on and at which versions, and duplicating that list here
+# would create two places to update and one of them would go stale. `.[ui]`
+# installs the project itself -- both package roots, so `import ui` and
+# `import resume_tailor` both resolve -- plus streamlit, plus every runtime
+# dependency at the bounds declared there.
+#
+# Installing the project is not optional on this host: `ui/app.py` imports
+# `resume_tailor`, which lives under `src/` and is not on the path otherwise.
+#
+# Linux packages (the LaTeX engine) go in packages.txt, not here.
+.[ui]

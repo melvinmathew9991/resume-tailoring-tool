@@ -228,7 +228,8 @@ ignore = [
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.10"
-files = ["src", "ui"]
+# streamlit_app.py is shipped and executed on a host, so it is checked too.
+files = ["src", "ui", "streamlit_app.py"]
 strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
