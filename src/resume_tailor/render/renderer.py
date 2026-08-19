@@ -29,6 +29,7 @@ from resume_tailor.domain.latex import (
     escape_latex,
     find_unescaped_specials,
     find_unknown_commands,
+    require_href_safe,
 )
 from resume_tailor.domain.models import PersonalInfo, Project, ResumeSpec
 from resume_tailor.render.template_env import get_environment
@@ -44,6 +45,27 @@ class RenderedSource:
     warnings: list[str] = field(default_factory=list)
 
 
+def _href(target: str, label: str) -> str:
+    """Build one ``\\href{}``, refusing a target that could break out of it.
+
+    Every link on the resume goes through here, and the target is re-checked
+    even though the models already validate it. That is not belt-and-braces for
+    its own sake: a link *target* is the one thing on the page that cannot be
+    escaped -- escaping breaks the URL -- so its only protection is being the
+    right shape. When that check lived only on the model, adding a field that
+    reached a link without one was a silent, one-line mistake, and the resulting
+    injection was invisible downstream: ``\\href`` is on the audit allowlist,
+    and a payload that closes the brace it opens passes the brace count too.
+    Routing every link through a single chokepoint makes the check impossible to
+    forget rather than merely easy to remember.
+    """
+    try:
+        require_href_safe(target, "link target")
+    except ValueError as exc:
+        raise UnsafeContentError(str(exc), target=target[:120]) from exc
+    return rf"\href{{{target}}}{{{label}}}"
+
+
 def _contact_line(personal: PersonalInfo) -> str:
     """Header contact row, skipping fields the profile leaves blank."""
     parts: list[str] = []
@@ -52,8 +74,7 @@ def _contact_line(personal: PersonalInfo) -> str:
     if personal.location:
         parts.append(escape_latex(personal.location))
     if personal.email:
-        email = escape_latex(personal.email)
-        parts.append(rf"\href{{mailto:{personal.email}}}{{{email}}}")
+        parts.append(_href(f"mailto:{personal.email}", escape_latex(personal.email)))
     return r" \quad ".join(parts)
 
 
@@ -61,18 +82,23 @@ def _profile_line(personal: PersonalInfo) -> str:
     parts: list[str] = []
     if personal.linkedin_url:
         display = escape_latex(personal.linkedin_display or personal.linkedin_url)
-        parts.append(rf"\href{{{personal.linkedin_url}}}{{LinkedIn: {display}}}")
+        parts.append(_href(personal.linkedin_url, f"LinkedIn: {display}"))
     if personal.github_url:
         display = escape_latex(personal.github_display or personal.github_url)
-        parts.append(rf"\href{{{personal.github_url}}}{{GitHub: {display}}}")
+        parts.append(_href(personal.github_url, f"GitHub: {display}"))
     return r" \quad ".join(parts)
 
 
 def _project_context(project: Project) -> dict[str, Any]:
+    display = escape_latex(project.github)  # this one is typeset
     return {
         "title": project.title,  # pre-verified LaTeX markup, used verbatim
         "github_url": project.github_url,  # shape-validated by the model
-        "github_display": escape_latex(project.github),  # this one is typeset
+        "github_display": display,
+        # Composed here rather than in the template, so that this link goes
+        # through the same chokepoint as every other one. A template that
+        # assembles its own \href{} is a link the check cannot see.
+        "github_link": _href(project.github_url, f"GitHub: {display}"),
         "bullets": list(project.bullets),
     }
 

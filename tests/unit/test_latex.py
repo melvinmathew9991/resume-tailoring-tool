@@ -15,9 +15,11 @@ from resume_tailor.domain.latex import (
     escape_latex,
     escape_user_text,
     find_dangerous_commands,
+    find_href_unsafe_chars,
     find_unescaped_specials,
     find_unknown_commands,
     latex_to_display_text,
+    require_href_safe,
     strip_control_chars,
     strip_markup,
     unescape_latex,
@@ -243,3 +245,58 @@ class TestStripControlChars:
 
     def test_removes_delete_character(self) -> None:
         assert strip_control_chars("a\x7fb") == "ab"
+
+
+class TestHrefSafety:
+    r"""The shape check for values that cannot be escaped.
+
+    A link target reaches the document literally, because escaping a URL breaks
+    it. That makes ``require_href_safe`` the only thing standing between a
+    caller-supplied value and an ``\href{}`` argument -- and the audit behind it
+    cannot help, since ``\href`` is an allowed command and a balanced payload
+    passes the brace count.
+    """
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "mailto:me@example.com",
+            "https://github.com/owner/repo",
+            "https://linkedin.com/in/first-last",
+            "mailto:first_last+tag@example.co.uk",
+            "https://example.com/path?a=b&c=d",
+        ],
+    )
+    def test_legitimate_targets_pass(self, value: str) -> None:
+        assert require_href_safe(value, "target") == value
+
+    @pytest.mark.parametrize(
+        ("value", "offender"),
+        [
+            ("a}{b", "}"),
+            (r"x} \href{https://evil.invalid}{hi", "\\"),
+            ("a#b", "#"),
+            ("a%b", "%"),
+            ("has space", " "),
+            ('quote"', '"'),
+            ("tab\there", "\t"),
+            ("line\nbreak", "\n"),
+            ("carriage\rreturn", "\r"),
+            ("null\x00byte", "\x00"),
+        ],
+    )
+    def test_unsafe_targets_are_named(self, value: str, offender: str) -> None:
+        assert offender in find_href_unsafe_chars(value)
+        with pytest.raises(ValueError, match="unsafe inside"):
+            require_href_safe(value, "target")
+
+    def test_the_error_says_which_field_and_which_character(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            require_href_safe("me}@example.com", "email")
+        message = str(excinfo.value)
+        assert "email" in message
+        assert repr("}") in message
+
+    def test_findings_are_sorted_and_deduplicated(self) -> None:
+        found = find_href_unsafe_chars("}}}{{{ ###")
+        assert found == sorted(set(found))

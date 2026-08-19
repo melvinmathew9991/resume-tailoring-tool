@@ -81,7 +81,7 @@
 \section*{Projects}
 \BLOCK{ for proj in projects }
 \textbf{\VAR{proj.title}} \\
-\href{\VAR{proj.github_url}}{GitHub: \VAR{proj.github_display}}
+\VAR{proj.github_link}
 \begin{itemize}
 \BLOCK{ for bullet in proj.bullets }
 \item \VAR{bullet}
