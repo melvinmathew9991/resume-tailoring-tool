@@ -107,7 +107,7 @@ HTTP API.
 |---|---|---|
 | Processes | one (Streamlit, embedded client) | two (API + UI over HTTP) |
 | Public API | no | yes |
-| Engine | tectonic, from `packages.txt` | TeX Live, baked into the image |
+| Engine | tectonic, fetched at boot | TeX Live, baked into the image |
 | Auth | none needed — nothing else is exposed | `RT_API_KEY` required |
 | Entrypoint | `streamlit_app.py` | `docker compose` |
 
@@ -127,6 +127,16 @@ is why it needs no API key and no CORS allowlist.
    - **Python version**: 3.11 or 3.12
 4. Deploy. No secrets are required; `streamlit_app.py` configures itself.
 
+**There is no `packages.txt`, and adding one back will break the build.**
+Community Cloud splits that file on whitespace and hands every token to
+`apt-get`, with no comment handling at all — so each word of a `#` comment
+becomes a package name and the install fails wholesale. That is how the first
+deploy of this app failed. The more basic problem it hid: **`tectonic` is not
+a Debian package**, in any suite, so the file could not have worked even
+written perfectly. `streamlit_app.py` downloads the upstream static binary
+instead, verifies it against a pinned sha256, and caches it under
+`~/.cache/rt-tectonic` (override with `RT_TECTONIC_DIR`).
+
 **Main file path is the one setting that matters.** Pointing at `ui/app.py`
 deploys an app that boots, renders, and then fails on the first click:
 `RT_UI_MODE` defaults to `http`, so the client tries to reach an API server
@@ -137,15 +147,16 @@ the first PDF is slower still, because tectonic downloads the TeX packages the
 template needs before it can typeset anything. Both are one-off per cold start.
 
 **Verifying it worked.** Open the app and check the engine banner. If it names
-`tectonic`, the toolchain installed and PDFs are real. If it warns that PDFs
-are blank placeholders, `apt install tectonic` failed on their builder and the
-app has fallen back to the fake engine — matching and LaTeX preview still work,
-generation does not. That fallback is deliberate: a degraded demo beats no demo
+`tectonic`, the download succeeded and PDFs are real. If it warns that PDFs
+are blank placeholders, the fetch failed and the app has fallen back to the
+fake engine — matching and LaTeX preview still work, generation does not. The
+app log says why, on the line beginning `tectonic bootstrap failed`. That
+fallback is deliberate: a degraded demo beats no demo
 when the cause is somebody else's infrastructure.
 
 **Known limits**, none of which this project can raise: roughly 1 GB of memory,
-the app sleeps after 12 hours without traffic, and a cold start pays the
-tectonic download again. If a compile is killed rather than failing, memory is
+the app sleeps after 12 hours without traffic, and a cold start pays both
+downloads again — the binary and the TeX bundle. If a compile is killed rather than failing, memory is
 the reason — cut the number of selected projects, or move to a container host.
 
 ### Container host
