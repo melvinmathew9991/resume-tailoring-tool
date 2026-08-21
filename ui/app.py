@@ -106,7 +106,21 @@ def main() -> None:
     )
 
     left, right = st.columns([1, 4])
-    if left.button("Analyse & match", type="primary", disabled=not state.jd_text.strip()):
+    # Deliberately not `disabled=not state.jd_text.strip()`.
+    #
+    # `st.text_area` does not send keystrokes to the server; it commits on blur
+    # or Ctrl+Enter. Disabling the button on `jd_text` therefore tests a value
+    # that has not arrived yet, and the button sits greyed out after a paste
+    # until the user happens to click somewhere else -- which reads as the app
+    # lagging, or being broken, rather than as a widget that has not committed.
+    #
+    # Clicking the button blurs the text area, so the pasted text and the click
+    # arrive in the same rerun. Validating here instead means the first click
+    # works, and a genuinely empty box gets a reason rather than dead UI.
+    if left.button("Analyse & match", type="primary"):
+        if not state.jd_text.strip():
+            st.warning("Paste a job description first.")
+            st.stop()
         try:
             state.match = client.match(state.jd_text)
             clear_project_checkboxes()

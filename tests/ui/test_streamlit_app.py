@@ -71,8 +71,22 @@ class TestInitialRender:
         assert "blank" in warnings.lower()
         assert "tectonic" in warnings.lower()
 
-    def test_analyse_button_is_disabled_without_a_jd(self, app: AppTest) -> None:
-        assert app.button[0].disabled is True
+    def test_analyse_is_clickable_before_the_text_area_commits(self, app: AppTest) -> None:
+        """The button must NOT be disabled on an empty `jd_text`.
+
+        `st.text_area` commits on blur, not on keystroke, so a freshly pasted
+        job description has not reached the server yet. Gating the button on
+        `jd_text` left it greyed out after a paste until the user clicked
+        elsewhere, which reads as the app lagging.
+        """
+        assert app.button[0].disabled is False
+
+    def test_analyse_without_a_jd_explains_itself(self, app: AppTest) -> None:
+        app.button[0].click().run()
+        assert not app.exception
+        warnings = " ".join(item.value for item in app.warning)
+        assert "job description" in warnings.lower()
+        assert app.checkbox.len == 0, "an empty submission must not run a match"
 
     def test_selection_ui_is_hidden_until_a_match_runs(self, app: AppTest) -> None:
         assert app.checkbox.len == 0
