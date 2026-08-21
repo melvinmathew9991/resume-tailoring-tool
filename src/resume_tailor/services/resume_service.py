@@ -227,11 +227,36 @@ class ResumeService:
 
         return ResumeSpec(
             profile=profile,
-            projects=projects,
+            projects=self._apply_bullet_budget(projects),
             project_keys=ordered_keys,
             max_pages=max_pages,
             bank_version=self.bank().version,
         )
+
+    def _apply_bullet_budget(self, projects: list[Project]) -> list[Project]:
+        """Trim each project's bullets to the budget for its rank position.
+
+        Applied here rather than in the template because `build_spec` is the
+        only route to the renderer, so preview and generate cannot disagree
+        about what the resume contains -- a preview that showed five bullets
+        and a PDF that printed three would be worse than either.
+
+        Trimming takes the first N as written in the bank; bullet order in
+        `project_bank.json` is the priority order. Projects beyond the budget
+        cannot occur (`resolve_selection` enforces `max_selected_projects`, and
+        a validator keeps the two in step), but `zip` would silently drop them
+        if they did, so the budget is indexed explicitly and the last entry
+        repeats rather than truncating the resume.
+        """
+        budget = self._settings.project_bullet_budget
+        trimmed: list[Project] = []
+        for position, project in enumerate(projects):
+            allowed = budget[position] if position < len(budget) else budget[-1]
+            if len(project.bullets) <= allowed:
+                trimmed.append(project)
+                continue
+            trimmed.append(project.model_copy(update={"bullets": project.bullets[:allowed]}))
+        return trimmed
 
     def _sanitize_summary(self, summary: str) -> str:
         """Escape a caller-supplied summary, then re-enable light markup.

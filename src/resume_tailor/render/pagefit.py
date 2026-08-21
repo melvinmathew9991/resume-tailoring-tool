@@ -127,10 +127,26 @@ def compile_with_page_fit(
         line_spacing=last.line_spacing,
         attempts=last.attempts,
         engine=last.engine,
-        warning=(
-            f"Could not fit within {max_pages} page(s) even at the smallest font size "
-            f"({last.font_size:g}pt) -- the PDF below is {last.page_count} page(s). "
-            "Content needs to be trimmed (remove a project or shorten bullets), not "
-            "just shrunk further."
-        ),
+        warning=_overflow_warning(max_pages, last, shrank=len(font_ladder) > 1),
+    )
+
+
+def _overflow_warning(max_pages: int, last: FitResult, *, shrank: bool) -> str:
+    """Say what was actually tried.
+
+    With a multi-rung ladder the engine really did shrink the type and still
+    failed, so "even at the smallest font size" is the honest summary. With a
+    single fixed rung the format is pinned by design and nothing was shrunk;
+    claiming otherwise sends the reader looking for a font setting to loosen
+    instead of at the content, which is the only thing that can change.
+    """
+    tried = (
+        f"even at the smallest font size ({last.font_size:g}pt)"
+        if shrank
+        else f"at the fixed {last.font_size:g}pt format"
+    )
+    return (
+        f"Could not fit within {max_pages} page(s) {tried} -- the PDF below is "
+        f"{last.page_count} page(s). Content needs to be trimmed (remove a project "
+        "or shorten bullets), not just shrunk further."
     )

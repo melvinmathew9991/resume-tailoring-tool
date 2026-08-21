@@ -98,6 +98,27 @@ To take a project out of circulation without deleting it, set
 `"hidden": true`. Hidden projects are excluded from listings, matching **and**
 generation.
 
+## Resume shape
+
+Fixed by configuration, not by the template alone:
+
+| Rule | Where |
+|---|---|
+| Font is always 9.2/11.0 | `font_ladder`, a single rung |
+| At most 5 projects | `max_selected_projects` |
+| Bullets per project: 5, 5, 3, 3, 1 | `project_bullet_budget` |
+| At most 2 pages | `max_pages_limit` |
+
+The budget **caps, it never pads**. A project with three bullets in a
+five-bullet slot stays at three — padding would mean inventing resume
+content. Trimming takes the first N bullets as written in
+`project_bank.json`, so bullet order in that file *is* the priority order.
+
+Because the ladder has one rung, an over-long resume is reported rather than
+absorbed: the PDF is still produced, and the warning names the page count and
+says to cut content. Adding rungs back to `RT_FONT_LADDER` restores
+shrink-to-fit with no code change.
+
 ## Deploying
 
 Two supported shapes, and which one you want depends on whether you need the

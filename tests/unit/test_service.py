@@ -137,6 +137,58 @@ class TestBuildSpec:
         assert "markup" in service.build_spec(["proj_a"], summary=None).profile.summary
 
 
+class TestBulletBudget:
+    """Five projects, shaped 5/5/3/3/1.
+
+    The budget caps; it never pads. A project with three bullets in a
+    five-bullet slot stays at three, because the alternative is inventing
+    resume content, which this tool does not do under any circumstances.
+    """
+
+    def test_budget_trims_by_rank_position(self, real_service: ResumeService) -> None:
+        keys = list(real_service.bank().visible())[:5]
+        bank = real_service.bank()
+        available = [len(bank.projects[key].bullets) for key in keys]
+        spec = real_service.build_spec(keys)
+
+        budget = [5, 5, 3, 3, 1]
+        expected = [min(have, allowed) for have, allowed in zip(available, budget, strict=True)]
+        assert [len(project.bullets) for project in spec.projects] == expected
+
+    def test_the_last_project_gets_exactly_one_bullet(self, real_service: ResumeService) -> None:
+        keys = list(real_service.bank().visible())[:5]
+        spec = real_service.build_spec(keys)
+        assert len(spec.projects[4].bullets) == 1
+
+    def test_trimming_keeps_the_first_bullets_in_bank_order(
+        self, real_service: ResumeService
+    ) -> None:
+        """Bank order is the priority order, so trimming must take a prefix."""
+        keys = list(real_service.bank().visible())[:5]
+        bank = real_service.bank()
+        spec = real_service.build_spec(keys)
+        for key, project in zip(keys, spec.projects, strict=True):
+            original = bank.projects[key].bullets
+            assert project.bullets == original[: len(project.bullets)]
+
+    def test_a_short_project_is_not_padded(self, service: ResumeService) -> None:
+        spec = service.build_spec(["proj_a"])
+        assert len(spec.projects[0].bullets) == len(service.bank().projects["proj_a"].bullets)
+
+    def test_preview_and_generate_see_the_same_bullets(self, real_service: ResumeService) -> None:
+        """Both go through `build_spec`, so they cannot disagree."""
+        keys = list(real_service.bank().visible())[:5]
+        spec = real_service.build_spec(keys)
+        tex, _ = real_service.render_preview(spec)
+        expected = sum(len(project.bullets) for project in spec.projects)
+        # Experience bullets are in the document too; count only that the
+        # project bullets present in the spec all reached the source.
+        for project in spec.projects:
+            for bullet in project.bullets:
+                assert bullet in tex
+        assert tex.count(r"\item") >= expected
+
+
 class TestMatchService:
     def test_returns_a_report(self, service: ResumeService) -> None:
         report = service.match("Python and SQL for a fintech team")
@@ -180,13 +232,19 @@ class TestGeneration:
         result = service.generate_sync(service.build_spec([]))
         assert result.fit.page_count >= 1
 
-    @pytest.mark.parametrize("max_pages", [1, 2, 3])
+    @pytest.mark.parametrize("max_pages", [1, 2])
     def test_page_fit_invariant_on_the_real_bank(
         self, real_service: ResumeService, max_pages: int
     ) -> None:
-        keys = list(real_service.bank().visible())
+        """`max_pages` stops at 2: the resume is capped at two pages, and 3 is
+        no longer an accepted value."""
+        keys = list(real_service.bank().visible())[:5]
         result = real_service.generate_sync(real_service.build_spec(keys, max_pages=max_pages))
         assert result.fit.page_count <= max_pages or result.fit.warning
+
+    def test_max_pages_above_the_cap_is_rejected(self, real_service: ResumeService) -> None:
+        with pytest.raises(InvalidInputError, match="between 1 and 2"):
+            real_service.build_spec(list(real_service.bank().visible())[:5], max_pages=3)
 
     async def test_async_generate_matches_sync(self, service: ResumeService) -> None:
         spec = service.build_spec(["proj_a"])
