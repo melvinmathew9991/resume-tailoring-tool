@@ -186,3 +186,76 @@ class TestStateHandling:
         matched(app)
         app.run()
         assert app.checkbox.len > 0, "session state must survive a rerun"
+
+
+class TestCloudEntrypoint:
+    """The Community Cloud entrypoint, not `ui/app.py`.
+
+    Every test above drives `ui/app.py` directly. That is the wrong file on
+    Community Cloud, which runs `streamlit_app.py`, and the gap let a total
+    failure ship green: the wrapper used to invoke the app with `import
+    ui.app`, and an import only executes a module once. Streamlit re-executes
+    its entrypoint on every interaction, so from the second successful import
+    onwards `main()` never ran and the page rendered nothing at all.
+
+    What made it survive review is the ordering. `main()` calls `st.stop()`
+    until a match exists, and that exception propagates out of the import,
+    discarding the half-initialised module so the next run re-imports it. The
+    app therefore works for exactly as long as it keeps stopping early. The
+    first run that completes normally -- a successful match -- is the one that
+    poisons it, and the *next* interaction goes blank and stays blank.
+
+    So the reproduction has to be at least three runs long, and the third has
+    to follow a run that did not stop. Anything shorter passes against the bug.
+    """
+
+    @pytest.fixture
+    def cloud_app(self, ui_env: None) -> AppTest:
+        entrypoint = str(Path(__file__).resolve().parents[2] / "streamlit_app.py")
+        return AppTest.from_file(entrypoint, default_timeout=120)
+
+    def test_the_entrypoint_renders(self, cloud_app: AppTest) -> None:
+        cloud_app.run()
+        assert not cloud_app.exception
+        assert cloud_app.title.len == 1
+
+    def test_it_survives_an_interaction_after_a_successful_match(self, cloud_app: AppTest) -> None:
+        cloud_app.run()
+        cloud_app.text_area[0].set_value(JD)
+        cloud_app.button[0].click().run()
+        assert cloud_app.header.len >= 2, "the match itself must render"
+
+        # The step that used to blank the page: reselecting a project.
+        cloud_app.checkbox[0].uncheck().run()
+
+        assert not cloud_app.exception
+        assert cloud_app.header.len >= 2, (
+            "the page went blank after a project reselection -- the entrypoint "
+            "is executing the app once instead of on every rerun"
+        )
+        assert cloud_app.checkbox.len > 0
+
+    def test_it_keeps_rendering_across_many_reruns(self, cloud_app: AppTest) -> None:
+        cloud_app.run()
+        cloud_app.text_area[0].set_value(JD)
+        cloud_app.button[0].click().run()
+
+        for index in range(5):
+            cloud_app.run()
+            assert cloud_app.header.len >= 2, f"blank on rerun {index + 1}"
+
+    def test_the_engine_download_is_skipped_for_a_pinned_engine(
+        self, cloud_app: AppTest, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`RT_PDF_ENGINE=fake` (set by `ui_env`) must not fetch an engine.
+
+        Without this guard the UI suite would download 10 MB from GitHub on any
+        machine without tectonic on PATH -- including CI.
+        """
+
+        def explode(*args: object, **kwargs: object) -> None:
+            raise AssertionError("the entrypoint must not download an engine here")
+
+        monkeypatch.setattr("urllib.request.urlopen", explode)
+        cloud_app.run()
+        assert not cloud_app.exception
