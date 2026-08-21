@@ -25,6 +25,7 @@ import hashlib
 import logging
 import os
 import platform
+import runpy
 import shutil
 import tarfile
 import tempfile
@@ -82,6 +83,11 @@ os.environ.setdefault("RT_LOG_JSON", "true")
 # Everything here is best-effort. Any failure logs and returns, leaving
 # `RT_PDF_ENGINE=auto` to fall back to the fake engine with a visible warning.
 # A deploy that comes up degraded beats a deploy that does not come up.
+#
+# It is also skipped entirely unless the configured engine could actually be
+# tectonic. Pinning `fake` or `pdflatex` and then downloading a 10 MB engine to
+# leave unused is waste, and it is what makes this file testable: the UI tests
+# run against `RT_PDF_ENGINE=fake` and must never touch the network.
 
 _TECTONIC_VERSION = "0.17.0"
 
@@ -108,6 +114,9 @@ def _ensure_tectonic() -> None:
     to be cheap: an already-installed binary is a `shutil.which` and nothing
     else.
     """
+    if os.environ.get("RT_PDF_ENGINE") not in ("auto", "tectonic"):
+        return  # a different engine is pinned; downloading this one is waste
+
     if shutil.which("tectonic"):
         return  # already on PATH -- dev machines, containers, warm reruns
 
@@ -189,6 +198,24 @@ def _download_tectonic(triple: str, expected_sha: str, destination: Path) -> Non
 
 _ensure_tectonic()
 
-# Importing runs the app: ui/app.py calls main() at module scope, which is the
-# Streamlit convention.
-import ui.app  # noqa: E402,F401  -- import *is* the invocation
+# Run the app -- with `runpy`, not `import`, and the difference is the whole
+# reason this line has a comment.
+#
+# Streamlit re-executes the entrypoint on every interaction. `import ui.app`
+# only executes ui/app.py the *first* time; afterwards the module is in
+# sys.modules and the import is a no-op, so `main()` never runs again and the
+# page renders nothing at all.
+#
+# That failure is worse than it sounds, because it does not show up until the
+# third run. `main()` calls `st.stop()` until a job description has been
+# matched, and that exception propagates out of the import, so Python discards
+# the half-initialised module and the next run re-imports it. The app therefore
+# survives exactly as long as it keeps stopping early. The first run that
+# completes normally is the one that poisons it: the import finally succeeds,
+# the module sticks, and every interaction after that renders a blank page,
+# permanently, with no error anywhere.
+#
+# `run_module` executes the module body in a fresh namespace every time, which
+# is precisely what `streamlit run ui/app.py` does -- so both entrypoints now
+# have the same semantics instead of only looking like they do.
+runpy.run_module("ui.app", run_name="__main__")

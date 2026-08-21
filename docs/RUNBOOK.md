@@ -137,6 +137,12 @@ written perfectly. `streamlit_app.py` downloads the upstream static binary
 instead, verifies it against a pinned sha256, and caches it under
 `~/.cache/rt-tectonic` (override with `RT_TECTONIC_DIR`).
 
+**Do not turn `runpy.run_module` in `streamlit_app.py` back into an `import`.**
+Streamlit re-executes its entrypoint on every interaction; an import executes
+the app once. The app then renders a blank page on the first interaction after
+a successful match and never recovers — silently, with no error. It shipped
+that way once. `tests/ui/test_streamlit_app.py::TestCloudEntrypoint` guards it.
+
 **Main file path is the one setting that matters.** Pointing at `ui/app.py`
 deploys an app that boots, renders, and then fails on the first click:
 `RT_UI_MODE` defaults to `http`, so the client tries to reach an API server
