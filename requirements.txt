@@ -10,5 +10,6 @@
 # Installing the project is not optional on this host: `ui/app.py` imports
 # `resume_tailor`, which lives under `src/` and is not on the path otherwise.
 #
-# Linux packages (the LaTeX engine) go in packages.txt, not here.
+# The LaTeX engine is not here and not in a packages.txt either -- tectonic is
+# not a Debian package. streamlit_app.py fetches the upstream binary itself.
 .[ui]
