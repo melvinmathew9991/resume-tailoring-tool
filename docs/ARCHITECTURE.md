@@ -23,6 +23,12 @@ previous implementation that motivated this shape, see [PLAN.md](PLAN.md).
 12. [Design decisions worth explaining](#12-design-decisions-worth-explaining)
 13. [What is deliberately absent](#13-what-is-deliberately-absent)
 
+The two standalone features added on top of this -- **Profile knowledge** and
+the **ATS match check** -- have their own design documents under
+[`docs/features/`](features/): the requirements in `PRD.md`, the integration
+points and scoring model in `Architecture.md`, the boundaries they were built
+under in `Rules.md`, and the build log in `Memory.md`.
+
 ---
 
 ## 1. The two invariants
@@ -130,7 +136,11 @@ renderer" failure *unrepresentable* rather than merely guarded against — see
 |---|---|
 | `models.py` | `Project`, `ProjectBank`, `PersonalInfo`, `Profile`, `MatchResult`, `MatchReport`, `ResumeSpec`. All `extra="forbid"`. |
 | `latex.py` | Escaping, display-text conversion, the `**bold**` markup subset, and the audit primitives: `ALLOWED_COMMANDS`, `find_unknown_commands`, `find_unescaped_specials`, `count_unbalanced_braces`. |
-| `matching.py` | Boundary-anchored keyword scoring, alias expansion, domain bonus, gap-term extraction. |
+| `matching.py` | Boundary-anchored keyword scoring, alias expansion, domain bonus, gap-term extraction. Reused by both standalone features. |
+| `vocabulary.py` | The curated term list, shared by knowledge extraction and ATS scoring so the two sides stay comparable. |
+| `extraction.py` | PDF/DOCX/text to normalised plain text, plus resume section splitting. No new dependency: `pypdf` was already here, and a `.docx` is a zip. |
+| `knowledge.py` | `KnowledgeBase` and the rule-based extractor. Merge is additive and de-duplicated; every entry cites the line it came from. |
+| `ats.py` | JD requirements, three-way classification and the weighted, frequency-proof score. Cannot import the renderer. |
 
 ### `data/` — content loading
 
@@ -138,6 +148,7 @@ renderer" failure *unrepresentable* rather than merely guarded against — see
 |---|---|
 | `bank_repo.py` | Loads and validates `project_bank.json`. Cached with mtime invalidation, so editing the file is picked up without a restart. Exposes a content hash as `bank_version`. |
 | `profile_repo.py` | Same contract for `profile.yaml`. |
+| `knowledge_repo.py` | Same contract for `knowledge.json`, plus atomic writes -- this is the one content file the application writes, and a missing one is an empty store rather than an error. |
 
 ### `render/` — source to bytes
 

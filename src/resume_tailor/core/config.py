@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default_factory=_default_data_dir)
     bank_filename: str = "project_bank.json"
     profile_filename: str = "profile.yaml"
+    knowledge_filename: str = "knowledge.json"
+    """Candidate knowledge (Feature 1). Unlike the other two content files this
+    one is *written* by the application, and it is absent on a fresh checkout --
+    an empty knowledge base, not an error."""
     template_dir: Path = _PACKAGE_ROOT / "render" / "templates"
     template_name: str = "resume.tex.j2"
 
@@ -94,30 +98,76 @@ class Settings(BaseSettings):
     """Bounds CPU/RAM: N in-flight requests must not mean N TeX processes
     (defect C4)."""
 
-    font_ladder: list[tuple[float, float]] = Field(
-        default_factory=lambda: [
-            (9.6, 11.5),
-            (9.4, 11.3),
-            (9.2, 11.0),
-            (9.0, 10.8),
-            (8.8, 10.6),
-        ]
-    )
-    """(font_size, line_spacing) pairs, largest first. 8.8pt is a deliberate
-    readability floor -- below it a slightly longer resume is the better
-    trade. Carried over unchanged from the original design."""
+    font_ladder: list[tuple[float, float]] = Field(default_factory=lambda: [(9.2, 11.0)])
+    """(font_size, line_spacing) pairs, largest first.
+
+    A single rung on purpose. This used to be a five-step ladder from 9.6 down
+    to 8.8 that shrank the type until the document fit the page limit, which
+    guaranteed a fit but meant two resumes generated a week apart could be set
+    at different sizes. The format is now fixed at 9.2/11.0 and overflow is
+    reported instead of absorbed: `compile_with_page_fit` walks whatever rungs
+    exist, so one rung compiles exactly once and warns if the result is longer
+    than `max_pages`.
+
+    That warning is the feature. Silently shrinking to 8.8pt to hide a
+    three-page resume solved the symptom; saying "this is 3 pages, cut
+    something" addresses the cause, and the author is the only one who can
+    decide what to cut.
+
+    Adding rungs restores the old shrink-to-fit behaviour with no code change.
+    """
 
     # -- input limits -------------------------------------------------------
     max_body_bytes: int = Field(default=1_048_576, ge=1024)
     max_jd_chars: int = Field(default=100_000, ge=1)
     max_summary_chars: int = Field(default=5_000, ge=1)
     max_personal_field_chars: int = Field(default=200, ge=1)
-    max_selected_projects: int = Field(default=40, ge=1)
-    max_pages_limit: int = Field(default=10, ge=1, le=10)
+    max_selected_projects: int = Field(default=5, ge=1)
+    """Kept in step with `project_bullet_budget` by a validator below."""
+
+    project_bullet_budget: list[int] = Field(default_factory=lambda: [5, 5, 3, 3, 1])
+    """Bullets kept per project, by rank position.
+
+    The resume gives its strongest two projects five bullets, the next two
+    three, and the last a single line. A project carrying ten good bullets in
+    the bank still only spends what its slot allows, so the shape of the page
+    is a property of the layout rather than of whichever projects happened to
+    be selected.
+
+    Trimming takes the first N as written in `project_bank.json`, so bullet
+    order in the file *is* the priority order -- put the strongest first.
+    """
+
+    max_pages_limit: int = Field(default=2, ge=1, le=10)
     """Hard ceiling, matching ``ResumeSpec.max_pages``. An unbounded value was
     accepted by the original API (``max_pages: 999999999``), which turned the
     page-fit guarantee into a no-op (defect B5)."""
     max_gap_terms: int = Field(default=30, ge=1)
+
+    max_knowledge_document_bytes: int = Field(default=4_194_304, ge=1024)
+    """Ceiling on one uploaded document, before extraction.
+
+    Larger than `max_body_bytes` on purpose. Embedded mode hands the bytes
+    straight to the service with no HTTP hop, so this is the limit that applies
+    there; over HTTP the (smaller) body limit bites first, which is the right
+    order -- a huge upload is rejected before it is buffered."""
+
+    max_knowledge_text_chars: int = Field(default=200_000, ge=1)
+    """Ceiling on pasted knowledge text."""
+
+    max_knowledge_entries: int = Field(default=5_000, ge=1, le=20_000)
+    max_knowledge_experience: int = Field(default=500, ge=1, le=2_000)
+    max_knowledge_sources: int = Field(default=200, ge=1, le=1_000)
+    """Ceilings on the knowledge store, so a pathological document -- or a long
+    history of ordinary ones -- cannot grow it without bound across repeated
+    merges.
+
+    Each upper bound is the matching hard cap on the model in
+    ``domain/knowledge.py``. That relationship is load-bearing rather than
+    tidy: configure a limit *above* the structural cap and the service's
+    check can never fire, so the user gets a raw validation error from
+    pydantic instead of a message telling them what to do about it.
+    """
 
     # -- rate limiting ------------------------------------------------------
     rate_limit_per_minute: int = Field(default=120, ge=1)
@@ -137,6 +187,10 @@ class Settings(BaseSettings):
     def profile_path(self) -> Path:
         return self.data_dir / self.profile_filename
 
+    @property
+    def knowledge_path(self) -> Path:
+        return self.data_dir / self.knowledge_filename
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_csv_origins(cls, value: object) -> object:
@@ -145,6 +199,32 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip().startswith("["):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("project_bullet_budget")
+    @classmethod
+    def _validate_bullet_budget(cls, budget: list[int]) -> list[int]:
+        if not budget:
+            raise ValueError("project_bullet_budget must not be empty")
+        if any(count < 1 for count in budget):
+            raise ValueError(f"project_bullet_budget entries must be >= 1, got {budget}")
+        return budget
+
+    @model_validator(mode="after")
+    def _budget_covers_every_slot(self) -> Settings:
+        """Every selectable project must have a bullet budget.
+
+        These two are independent settings that mean nothing apart: a cap of 5
+        with a four-entry budget would leave the fifth project with no rule,
+        and the failure would surface as a resume with a silently empty
+        project rather than as a configuration error.
+        """
+        if len(self.project_bullet_budget) != self.max_selected_projects:
+            raise ValueError(
+                f"project_bullet_budget has {len(self.project_bullet_budget)} entries "
+                f"but max_selected_projects is {self.max_selected_projects}; "
+                "they must match"
+            )
+        return self
 
     @field_validator("font_ladder")
     @classmethod

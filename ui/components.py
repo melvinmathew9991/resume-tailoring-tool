@@ -9,10 +9,12 @@ from __future__ import annotations
 import streamlit as st
 
 from resume_tailor.api.schemas import (
+    GateOut,
     GenerateResponse,
     MatchResponse,
     MatchResultOut,
     ReadinessResponse,
+    ResumeAtsResponse,
 )
 from ui.client import BackendError
 
@@ -21,6 +23,33 @@ MATCH_CAVEAT = (
     "A project scoring zero may still be your strongest one -- it may simply "
     "use different words than this job description."
 )
+
+
+GATE_ICON = {"pass": "✅", "fail": "❌", "unverified": "❔"}
+
+
+def render_gates(gates: list[GateOut], *, capped: bool, uncapped_score: int, gate_cap: int) -> None:
+    """Hard filters, shown apart from the percentage because they are not one.
+
+    A cap is stated before anything else about the gates: a screen that filters
+    on a failed one never reaches the keywords, so a strong-looking breakdown
+    beside it would be the most misleading thing on the page.
+    """
+    if not gates:
+        return
+    if capped:
+        st.error(
+            f"**Score capped at {gate_cap}%** — it would be {uncapped_score}% otherwise. "
+            "The posting has a hard requirement your record falls short of, and a screen "
+            "that filters on it rejects the application whatever else matches."
+        )
+    for gate in gates:
+        line = f"{GATE_ICON.get(gate.status, '•')} **{gate.label}** — requires {gate.required}"
+        if gate.found:
+            line += f"; on record: {gate.found}"
+        st.markdown(line)
+        if gate.detail:
+            st.caption(gate.detail)
 
 
 def render_backend_status(readiness: ReadinessResponse, mode: str) -> None:
@@ -139,4 +168,89 @@ def render_result(result: GenerateResponse, pdf_bytes: bytes | None) -> None:
             st.caption(
                 "Reminder: this PDF came from the placeholder engine. The page "
                 "count is meaningful; the content is blank."
+            )
+
+
+RESUME_ATS_CAVEAT = (
+    "Scored against **this resume** -- your profile plus the bullets that "
+    "actually fit on the page -- not against everything you know. Project "
+    "keywords in the bank are excluded, because an ATS only ever sees what is "
+    "printed. Each requirement counts once, however often the posting repeats it."
+)
+
+
+def render_resume_ats(report: ResumeAtsResponse) -> None:
+    """The resume-scoped ATS panel.
+
+    Deliberately reports a different number from the ATS match check view, and
+    says so: that view scores the candidate, this one scores the document. Two
+    scores that look alike and mean different things is the one outcome worth
+    spending a caption to prevent.
+    """
+    if report.requirement_count == 0:
+        st.caption(
+            "No recognisable requirements were found in this job description, "
+            "so there is nothing to score against."
+        )
+        return
+
+    columns = st.columns([1, 1, 2])
+    columns[0].metric("ATS match · this resume", f"{report.score}%")
+    columns[1].metric("Requirements", report.requirement_count)
+    columns[2].metric("Band", report.band)
+    st.progress(report.score / 100)
+    st.caption(
+        f"This resume covers {report.score}% of the requirements in the job description. "
+        + RESUME_ATS_CAVEAT
+    )
+    # Said outright, because two similar-looking percentages in one app read as
+    # a contradiction rather than as two measurements. Naming the other number
+    # and what separates them is cheaper than letting the user discover it.
+    st.caption(
+        "**This is not the same number as the ATS match check view.** That one scores "
+        "everything you know about yourself and answers *should I apply?*; this one scores "
+        "the document you are about to send and answers *will this page pass a screen?* "
+        "The document number is normally lower, and the gap is the list below."
+    )
+
+    render_gates(
+        report.gates,
+        capped=report.capped,
+        uncapped_score=report.uncapped_score,
+        gate_cap=report.gate_cap,
+    )
+
+    # The recoverable gaps come first. They are the only ones the user can
+    # close from this screen, by choosing a different project.
+    if report.covered_elsewhere:
+        st.warning(
+            "**On your record but not on this resume ("
+            f"{len(report.covered_elsewhere)}).** A different project selection would "
+            "cover these:\n\n" + " ".join(f"`{term}`" for term in report.covered_elsewhere),
+            icon="💡",
+        )
+
+    unrecoverable = [
+        term for term in report.missing_requirements if term not in set(report.covered_elsewhere)
+    ]
+    if unrecoverable:
+        st.error(
+            f"**Missing everywhere ({len(unrecoverable)}).** Nothing in your project bank, "
+            "profile or knowledge covers these:\n\n"
+            + " ".join(f"`{term}`" for term in unrecoverable)
+        )
+    if report.weak_requirements:
+        st.caption(
+            "Matched only by a related term: "
+            + " ".join(f"`{term}`" for term in report.weak_requirements)
+        )
+    if not report.missing_requirements and not report.weak_requirements:
+        st.success("Every requirement this check found is covered by this resume.")
+
+    with st.expander("Breakdown by factor", expanded=False):
+        for category in report.breakdown:
+            st.markdown(
+                f"**{category.label}** — {category.score * 100:.0f}% "
+                f"(weight {category.weight:g}) · {category.exact_count} exact / "
+                f"{category.related_count} related / {category.missing_count} missing"
             )

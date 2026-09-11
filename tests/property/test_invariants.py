@@ -162,7 +162,11 @@ class TestPageFitProperties:
 
 
 class TestSelectionProperties:
-    @given(st.lists(st.sampled_from(["proj_a", "proj_b"]), max_size=12))
+    # max_size tracks `max_selected_projects`, which the cap checks *before*
+    # de-duplication -- so a longer list is rejected outright and would test
+    # the guard rather than the ordering property. Duplicates still occur
+    # freely within five elements, which is what this property is about.
+    @given(st.lists(st.sampled_from(["proj_a", "proj_b"]), max_size=5))
     @hyp_settings(suppress_health_check=[HealthCheck.function_scoped_fixture], deadline=None)
     def test_selection_is_deduplicated_and_order_preserving(
         self, service: ResumeService, keys: list[str]
@@ -173,7 +177,7 @@ class TestSelectionProperties:
         assert resolved == list(dict.fromkeys(keys))
         assert set(resolved) <= set(keys)
 
-    @given(st.lists(st.sampled_from(["proj_a", "proj_b"]), min_size=1, max_size=6))
+    @given(st.lists(st.sampled_from(["proj_a", "proj_b"]), min_size=1, max_size=5))
     @hyp_settings(
         max_examples=15,
         deadline=None,

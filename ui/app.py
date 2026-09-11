@@ -14,10 +14,17 @@ from __future__ import annotations
 
 import streamlit as st
 
-from resume_tailor.api.schemas import ResumeRequest
-from ui import components
-from ui.client import BackendClient, BackendError, build_client
-from ui.state import get_state, reset_results, sync_bank_version
+from resume_tailor.api.schemas import ResumeAtsRequest, ResumeRequest
+from ui import ats_view, components, knowledge_view
+from ui.client import BackendClient, BackendError, build_client, source_fingerprint
+from ui.state import (
+    ATS_VIEW,
+    KNOWLEDGE_VIEW,
+    VIEWS,
+    get_state,
+    reset_results,
+    sync_bank_version,
+)
 
 st.set_page_config(
     page_title="Resume Tailoring Tool",
@@ -29,12 +36,15 @@ st.set_page_config(
 AUTO_SELECT_TOP_N = 5
 
 
-@st.cache_resource
-def get_client() -> BackendClient:
+@st.cache_resource(max_entries=1)
+def get_client(fingerprint: str) -> BackendClient:
     """One client per session process.
 
     ``cache_resource`` rather than ``cache_data``: this holds a live HTTP
     connection pool, which must not be copied per rerun.
+
+    ``max_entries=1`` so a rebuild after an edit evicts the superseded client
+    rather than accumulating one connection pool per edit.
     """
     return build_client()
 
@@ -53,16 +63,19 @@ def clear_project_checkboxes() -> None:
 
 def main() -> None:
     state = get_state()
-    client = get_client()
+    client = get_client(source_fingerprint())
 
-    st.title("Resume Tailoring Tool")
-    st.caption(
-        "Paste a job description, review the keyword match, choose your projects, "
-        "and generate a page-limit-verified PDF. Every bullet is pre-written and "
-        "fact-checked -- this tool selects and formats, it never writes new claims."
-    )
+    # Radio rather than tabs. Streamlit executes the body of every tab on every
+    # rerun, so tabs would run all three features -- and their `st.stop()`
+    # calls -- on each interaction. A radio runs exactly the view in front of
+    # the user.
+    view = st.sidebar.radio("Feature", VIEWS, key="rt_view")
 
     # -- sidebar ------------------------------------------------------------
+    #
+    # The health panel is rendered before the view switch so it is present in
+    # all three, and so an unreachable backend is reported once rather than
+    # three times in three different phrasings.
     try:
         readiness = client.readiness()
         components.render_backend_status(readiness, client.mode)
@@ -70,6 +83,23 @@ def main() -> None:
         st.sidebar.error(f"Backend unavailable ({client.mode} mode)")
         components.render_error(exc)
         st.stop()
+
+    # The two standalone features need neither the meta payload nor the bank
+    # version, so they are dispatched before either is fetched -- an ATS check
+    # must not fail because the resume-side content is unreadable.
+    if view == KNOWLEDGE_VIEW:
+        knowledge_view.render(client, state)
+        return
+    if view == ATS_VIEW:
+        ats_view.render(client, state)
+        return
+
+    st.title("Resume Tailoring Tool")
+    st.caption(
+        "Paste a job description, review the keyword match, choose your projects, "
+        "and generate a page-limit-verified PDF. Every bullet is pre-written and "
+        "fact-checked -- this tool selects and formats, it never writes new claims."
+    )
 
     if state.meta is None:
         try:
@@ -106,7 +136,21 @@ def main() -> None:
     )
 
     left, right = st.columns([1, 4])
-    if left.button("Analyse & match", type="primary", disabled=not state.jd_text.strip()):
+    # Deliberately not `disabled=not state.jd_text.strip()`.
+    #
+    # `st.text_area` does not send keystrokes to the server; it commits on blur
+    # or Ctrl+Enter. Disabling the button on `jd_text` therefore tests a value
+    # that has not arrived yet, and the button sits greyed out after a paste
+    # until the user happens to click somewhere else -- which reads as the app
+    # lagging, or being broken, rather than as a widget that has not committed.
+    #
+    # Clicking the button blurs the text area, so the pasted text and the click
+    # arrive in the same rerun. Validating here instead means the first click
+    # works, and a genuinely empty box gets a reason rather than dead UI.
+    if left.button("Analyse & match", type="primary"):
+        if not state.jd_text.strip():
+            st.warning("Paste a job description first.")
+            st.stop()
         try:
             state.match = client.match(state.jd_text)
             clear_project_checkboxes()
@@ -206,9 +250,27 @@ def main() -> None:
         finally:
             state.generating = False
 
-    # -- step 4: result ------------------------------------------------------
+    # -- step 4: ats score for this selection --------------------------------
+    #
+    # Rendered before the result rather than inside it, and computed without
+    # compiling. It scores the *document* -- the profile plus the bullets that
+    # actually survive onto the page -- so it changes as the selection changes,
+    # and a user can iterate on which projects to include in the time it takes
+    # to tick a checkbox, instead of paying a multi-second compile per attempt.
+    st.header("4 · ATS match for this resume")
+    try:
+        state.resume_ats = client.resume_ats(
+            ResumeAtsRequest(**request.model_dump(), jd_text=state.jd_text)
+        )
+    except BackendError as exc:
+        state.resume_ats = None
+        components.render_error(exc)
+    if state.resume_ats is not None:
+        components.render_resume_ats(state.resume_ats)
+
+    # -- step 5: result ------------------------------------------------------
     if state.result is not None:
-        st.header("4 · Result")
+        st.header("5 · Result")
         components.render_result(state.result, state.pdf_bytes)
 
 

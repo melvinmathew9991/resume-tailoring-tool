@@ -15,19 +15,27 @@ Selected with ``RT_UI_MODE``.
 
 from __future__ import annotations
 
+import base64
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
 from resume_tailor.api.schemas import (
+    AtsResponse,
     GenerateResponse,
+    KnowledgeDeleteResponse,
+    KnowledgeResponse,
+    KnowledgeUpdateResponse,
     MatchResponse,
     MetaResponse,
     PreviewResponse,
     ProjectListResponse,
     ReadinessResponse,
+    ResumeAtsRequest,
+    ResumeAtsResponse,
     ResumeRequest,
 )
 
@@ -70,6 +78,27 @@ class BackendClient(Protocol):
     def preview(self, request: ResumeRequest) -> PreviewResponse: ...
     def generate(self, request: ResumeRequest) -> GenerateResponse: ...
     def download(self, document_id: str) -> DownloadedPdf: ...
+
+    # Feature 1 -- candidate knowledge.
+    def knowledge(self) -> KnowledgeResponse: ...
+    def update_knowledge(
+        self,
+        *,
+        text: str | None = None,
+        document: bytes | None = None,
+        filename: str | None = None,
+        label: str | None = None,
+        mode: str = "merge",
+    ) -> KnowledgeUpdateResponse: ...
+    def delete_knowledge_entry(self, category: str, value: str) -> KnowledgeDeleteResponse: ...
+    def clear_knowledge(self) -> KnowledgeResponse: ...
+
+    # Feature 2 -- ATS match check.
+    def ats_check(self, jd_text: str) -> AtsResponse: ...
+
+    # The resume-scoped score: what the assembled document covers, not what
+    # the candidate covers. Part of the tailoring workflow, not of feature 2.
+    def resume_ats(self, request: ResumeAtsRequest) -> ResumeAtsResponse: ...
 
 
 # --- http mode --------------------------------------------------------------
@@ -153,6 +182,54 @@ class HttpBackendClient:
             "POST", "/api/v1/resume/generate", json=request.model_dump(exclude_none=True)
         )
         return GenerateResponse.model_validate(response.json())
+
+    def knowledge(self) -> KnowledgeResponse:
+        return KnowledgeResponse.model_validate(self._request("GET", "/api/v1/knowledge").json())
+
+    def update_knowledge(
+        self,
+        *,
+        text: str | None = None,
+        document: bytes | None = None,
+        filename: str | None = None,
+        label: str | None = None,
+        mode: str = "merge",
+    ) -> KnowledgeUpdateResponse:
+        # base64 rather than multipart: see KnowledgeUpdateRequest for why the
+        # API takes the document in the JSON body at all.
+        body: dict[str, Any] = {"mode": mode}
+        if document is not None:
+            body["document_b64"] = base64.b64encode(document).decode("ascii")
+            # Passed through empty rather than defaulted to a placeholder. The
+            # extension selects the reader, so an invented "upload" guarantees
+            # a confusing "unsupported file type" instead of the API's own
+            # "filename is required with document_b64".
+            body["filename"] = filename or ""
+        else:
+            body["text"] = text
+            if label:
+                body["label"] = label
+        response = self._request("POST", "/api/v1/knowledge", json=body)
+        return KnowledgeUpdateResponse.model_validate(response.json())
+
+    def delete_knowledge_entry(self, category: str, value: str) -> KnowledgeDeleteResponse:
+        response = self._request(
+            "DELETE", "/api/v1/knowledge/entries", params={"category": category, "value": value}
+        )
+        return KnowledgeDeleteResponse.model_validate(response.json())
+
+    def clear_knowledge(self) -> KnowledgeResponse:
+        return KnowledgeResponse.model_validate(self._request("DELETE", "/api/v1/knowledge").json())
+
+    def ats_check(self, jd_text: str) -> AtsResponse:
+        response = self._request("POST", "/api/v1/ats/check", json={"jd_text": jd_text})
+        return AtsResponse.model_validate(response.json())
+
+    def resume_ats(self, request: ResumeAtsRequest) -> ResumeAtsResponse:
+        response = self._request(
+            "POST", "/api/v1/resume/ats", json=request.model_dump(exclude_none=True)
+        )
+        return ResumeAtsResponse.model_validate(response.json())
 
     def download(self, document_id: str) -> DownloadedPdf:
         response = self._request("GET", f"/api/v1/resume/{document_id}")
@@ -241,6 +318,60 @@ class EmbeddedBackendClient:
             bank_version=result.bank_version,
         )
 
+    def knowledge(self) -> KnowledgeResponse:
+        from resume_tailor.api.v1.knowledge import build_knowledge_response
+
+        return build_knowledge_response(self._call(self._service.knowledge))
+
+    def update_knowledge(
+        self,
+        *,
+        text: str | None = None,
+        document: bytes | None = None,
+        filename: str | None = None,
+        label: str | None = None,
+        mode: str = "merge",
+    ) -> KnowledgeUpdateResponse:
+        """Straight to the service, with the route module's own response mapping.
+
+        The one place an embedded call does not go through the route handler:
+        that handler takes the document base64-encoded, and encoding bytes this
+        process already holds only to decode them again would be waste. The
+        *mapping* is still shared, so the two modes cannot drift.
+        """
+        from resume_tailor.api.v1.knowledge import build_update_response
+
+        result = self._call(
+            self._service.update_knowledge,
+            text=text,
+            document=document,
+            filename=filename,
+            label=label,
+            mode=mode,
+        )
+        return build_update_response(result)
+
+    def delete_knowledge_entry(self, category: str, value: str) -> KnowledgeDeleteResponse:
+        from resume_tailor.api.v1.knowledge import delete_knowledge_entry as delete_route
+
+        return self._call(delete_route, self._service, category, value)  # type: ignore[no-any-return]
+
+    def clear_knowledge(self) -> KnowledgeResponse:
+        from resume_tailor.api.v1.knowledge import clear_knowledge as clear_route
+
+        return self._call(clear_route, self._service)  # type: ignore[no-any-return]
+
+    def ats_check(self, jd_text: str) -> AtsResponse:
+        from resume_tailor.api.schemas import AtsRequest
+        from resume_tailor.api.v1.ats import check as check_route
+
+        return self._call(check_route, AtsRequest(jd_text=jd_text), self._service)  # type: ignore[no-any-return]
+
+    def resume_ats(self, request: ResumeAtsRequest) -> ResumeAtsResponse:
+        from resume_tailor.api.v1.resume import resume_ats as resume_ats_route
+
+        return self._call(resume_ats_route, request, self._service)  # type: ignore[no-any-return]
+
     def download(self, document_id: str) -> DownloadedPdf:
         document = self._call(self._service.documents.get, document_id)
         return DownloadedPdf(content=document.pdf_bytes, filename=document.filename)
@@ -260,3 +391,32 @@ def build_client(mode: str | None = None) -> BackendClient:
         settings = get_settings()
         return HttpBackendClient(settings.api_base_url, api_key=settings.api_key)
     raise ValueError(f"unknown RT_UI_MODE {resolved!r}; expected 'http' or 'embedded'")
+
+
+def source_fingerprint() -> str:
+    """A token that changes whenever this module changes on disk.
+
+    Exists for one caller: the Streamlit UI passes it to its cached
+    ``get_client`` factory so that editing this file invalidates the cache.
+
+    ``st.cache_resource`` survives a rerun *and* a hot reload, and Streamlit
+    only invalidates it when the decorated function's own source changes. Add a
+    method here and ``get_client``'s body is untouched, so the cache keeps
+    handing back an instance of the *previous* class -- which then fails with
+    ``AttributeError`` on the new method, in a process whose source on disk
+    plainly has it. That is a genuinely confusing five minutes, and it is
+    entirely avoidable.
+
+    mtime plus size: the same stamp ``BankRepository`` and ``ProfileRepository``
+    use to notice a content file changing under them. In a deployment nothing
+    rewrites this file, so the cache is exactly as stable as it was before; the
+    cost is one ``stat`` per rerun.
+    """
+    try:
+        stat = Path(__file__).stat()
+    except OSError:
+        # No fingerprint available is not a reason to fail. Falling back to a
+        # constant restores the previous cache-forever behaviour, which is
+        # correct everywhere except a live edit.
+        return "unknown"
+    return f"{stat.st_mtime_ns}:{stat.st_size}"

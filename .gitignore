@@ -35,3 +35,8 @@ htmlcov/
 Thumbs.db
 .idea/
 .vscode/
+
+# Candidate knowledge is per-person data written by the app, not project
+# content. profile.yaml and project_bank.json are committed because they are
+# the resume's source text; this file is whatever the user has uploaded.
+data/knowledge.json

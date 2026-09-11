@@ -43,9 +43,12 @@ class TestHealth:
 class TestMeta:
     def test_publishes_limits_and_defaults(self, client: TestClient) -> None:
         body = client.get("/api/v1/meta").json()
-        assert body["max_pages_limit"] == 10
-        assert body["max_selected_projects"] > 0
-        assert len(body["font_ladder"]) == 5
+        assert body["max_pages_limit"] == 2, "the resume is capped at two pages"
+        assert body["max_selected_projects"] == 5
+        assert body["font_ladder"] == [[9.2, 11.0]], (
+            "the format is fixed at 9.2/11.0; a longer ladder would mean the "
+            "renderer is shrinking type to hide overflow again"
+        )
         assert body["bank_version"]
 
     def test_default_summary_is_display_text(self, client: TestClient) -> None:
@@ -253,10 +256,28 @@ class TestResumeGeneration:
     def test_page_fit_warning_is_set_when_content_overflows(self, real_client: TestClient) -> None:
         keys = [p["key"] for p in real_client.get("/api/v1/projects").json()["projects"]]
         body = real_client.post(
-            "/api/v1/resume/generate", json={"selected_project_keys": keys, "max_pages": 1}
+            "/api/v1/resume/generate",
+            json={"selected_project_keys": keys[:5], "max_pages": 1},
         ).json()
         assert body["page_count"] <= 1 or body["warning"]
         assert body["fits"] == (not body["warning"])
+
+    def test_overflow_does_not_claim_the_font_was_shrunk(self, real_client: TestClient) -> None:
+        """The warning must describe what actually happened.
+
+        With the fixed single-rung format nothing is shrunk, so the old
+        "even at the smallest font size" wording would send the reader hunting
+        for a font setting instead of trimming content.
+        """
+        keys = [p["key"] for p in real_client.get("/api/v1/projects").json()["projects"]]
+        body = real_client.post(
+            "/api/v1/resume/generate",
+            json={"selected_project_keys": keys[:5], "max_pages": 1},
+        ).json()
+        if not body["warning"]:
+            pytest.skip("content fit on one page; nothing to assert about overflow")
+        assert "fixed 9.2pt format" in body["warning"]
+        assert "smallest font size" not in body["warning"]
 
     def test_expired_or_unknown_document_is_404(self, client: TestClient) -> None:
         assert client.get("/api/v1/resume/nope").status_code == 404
