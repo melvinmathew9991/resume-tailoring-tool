@@ -157,11 +157,17 @@ jobs:
       - run: pytest -m "integration or latex" -v
 
   # The full TeX Live path, matching the production container. Slower, so it
-  # runs nightly and on tags rather than on every push.
+  # runs nightly and on tags rather than on every push -- plus on demand, which
+  # matters because this is the only job that exercises the pdfTeX branch of
+  # the template's font conditional. A change to that branch would otherwise
+  # wait until the next nightly to be tested at all.
   texlive:
     name: real compile (texlive)
     runs-on: ubuntu-latest
-    if: github.event_name == 'schedule' || startsWith(github.ref, 'refs/tags/')
+    if: >-
+      github.event_name == 'schedule'
+      || github.event_name == 'workflow_dispatch'
+      || startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

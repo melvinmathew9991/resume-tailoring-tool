@@ -83,9 +83,10 @@ and `MLflow` were on the page and invisible to a literal keyword match. Fixing
 the font setup took extraction from 96.8% to **99.4%**; what remains is kerning,
 which no font setting fixes.
 
-The preamble picks its font setup per engine — `fontspec` with
-`Ligatures=NoCommon` under XeTeX/LuaTeX, `cmap` plus T1 `fontenc` under pdfTeX,
-which is that engine's own answer to the same problem.
+The cause was one line: `\usepackage[T1]{fontenc}`, which forces the legacy
+8-bit fonts whose character map reports the `fi` ligature as a single glyph. It
+is now loaded for pdfTeX only, where it is still needed and harmless; XeTeX uses
+its native Unicode Latin Modern instead and sets no f-ligatures at all.
 
 ---
 

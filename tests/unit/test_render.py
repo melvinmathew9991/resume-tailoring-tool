@@ -121,41 +121,52 @@ class TestRenderSource:
 
 
 class TestEngineConditionalFontSetup:
-    """The preamble asks which engine is running, and it has to keep asking.
+    """T1 ``fontenc`` is loaded for pdfTeX only, and must stay that way.
 
-    Turning off the f-ligatures is the difference between a resume an ATS can
-    read and one it cannot -- measured on the real resume, 14 words including
-    ``classification`` and ``MLflow`` -- and the two engines answer it with
-    different packages. Deleting either branch silently reintroduces the
-    problem on that engine, with no error anywhere.
+    Under XeTeX that one line sets the f-ligatures as single glyphs, so
+    ``classification`` extracts as something other than the letters it was
+    typed with -- 14 unmatchable words on the real resume, measured. Moving it
+    out of the conditional reintroduces that silently: the document still
+    compiles, still looks right, and quietly stops matching keywords.
     """
 
-    def test_both_engine_branches_are_present(
+    def render(self, service: ResumeService, settings: Settings) -> str:
+        return render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
+
+    def test_the_legacy_encoding_is_pdftex_only(
         self, service: ResumeService, settings: Settings
     ) -> None:
-        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
-        assert r"\ifPDFTeX" in tex and r"\else" in tex and r"\fi" in tex
-
-    def test_xetex_turns_common_ligatures_off(
-        self, service: ResumeService, settings: Settings
-    ) -> None:
-        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
-        assert r"\usepackage{fontspec}" in tex
-        assert r"\defaultfontfeatures{Ligatures=NoCommon}" in tex
-
-    def test_pdftex_keeps_its_own_answer(self, service: ResumeService, settings: Settings) -> None:
-        """``fontspec`` does not run under pdfTeX at all, so that branch keeps
-        ``cmap`` and T1 ``fontenc`` -- which is what the template always had."""
-        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
-        pdftex_branch = tex.split(r"\ifPDFTeX")[1].split(r"\else")[0]
-        assert r"\usepackage{cmap}" in pdftex_branch
+        tex = self.render(service, settings)
+        pdftex_branch = tex.split(r"\ifPDFTeX")[1].split(r"\fi")[0]
         assert r"\usepackage[T1]{fontenc}" in pdftex_branch
+        assert r"\usepackage{cmap}" in pdftex_branch
         assert r"\usepackage[utf8]{inputenc}" in pdftex_branch
+
+    def test_nothing_outside_the_conditional_loads_fontenc(
+        self, service: ResumeService, settings: Settings
+    ) -> None:
+        """The assertion that actually protects extraction: exactly one
+        ``fontenc``, and it is inside the pdfTeX branch."""
+        tex = self.render(service, settings)
+        assert tex.count("fontenc") == 1
+        assert tex.count("inputenc") == 1
 
     def test_the_conditional_is_balanced(self, service: ResumeService, settings: Settings) -> None:
         """An unclosed conditional swallows the rest of the document."""
-        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
-        assert tex.count(r"\ifPDFTeX") == tex.count(r"\fi") == tex.count(r"\else") == 1
+        tex = self.render(service, settings)
+        assert tex.count(r"\ifPDFTeX") == tex.count(r"\fi") == 1
+
+    def test_there_is_no_else_branch(self, service: ResumeService, settings: Settings) -> None:
+        """XeTeX needs nothing added, only the legacy encoding withheld.
+
+        An earlier version put ``fontspec`` and ``Ligatures=NoCommon`` here.
+        Both read convincingly and changed nothing -- compiling with the branch
+        empty produced byte-identical output -- so they were removed, and with
+        them two entries from the LaTeX audit allowlist.
+        """
+        tex = self.render(service, settings)
+        assert r"\else" not in tex
+        assert "fontspec" not in tex
 
     def test_the_audit_still_passes(self, service: ResumeService, settings: Settings) -> None:
         rendered = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir)
