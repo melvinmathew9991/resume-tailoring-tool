@@ -95,6 +95,50 @@ def parse_panel(status: str, **overrides: object) -> AppTest:
     return instance
 
 
+class TestPostingCompletenessPanel:
+    """The warning has to arrive before the score, not after it.
+
+    A truncated posting scores higher than the real one, so a caveat printed
+    underneath a flattering number is a caveat nobody reads.
+    """
+
+    FULL_JD = (
+        "Senior Data Scientist\n\nAbout the role\nYou will build and validate "
+        "predictive models for our lending business, working with engineers and "
+        "product managers to ship them into production systems.\n\n"
+        "Responsibilities\n- Build classification and regression models\n"
+        "- Partner with engineering to deploy them\n- Present findings clearly\n\n"
+        "Requirements\n- 3+ years of experience in Python and SQL\n"
+        "- Strong background in statistics and machine learning\n"
+        "- Experience with scikit-learn or similar frameworks\n"
+        "- Bachelor's degree in a quantitative field\n"
+    )
+
+    def test_a_short_paste_is_flagged(self, app: AppTest) -> None:
+        matched(app)
+        warnings = " ".join(item.value for item in app.warning)
+        assert "may be incomplete" in warnings
+
+    def test_a_complete_posting_is_not_flagged(self, app: AppTest) -> None:
+        app.text_area[0].set_value(self.FULL_JD).run()
+        app.button[0].click().run()
+        assert not app.exception
+        warnings = " ".join(item.value for item in app.warning)
+        assert "may be incomplete" not in warnings
+
+    def test_the_warning_explains_the_direction_of_the_error(self, app: AppTest) -> None:
+        """Everyone assumes a partial posting scores lower. It scores higher,
+        and the caption has to say so or the warning reads as pedantry."""
+        matched(app)
+        captions = " ".join(item.value for item in app.caption)
+        assert "higher" in captions
+
+    def test_an_incomplete_posting_still_produces_a_ranking(self, app: AppTest) -> None:
+        matched(app)
+        assert not app.exception
+        assert app.checkbox.len > 0, "the flag must not block the workflow"
+
+
 class TestParseCheckPanel:
     def test_a_pass_with_losses_does_not_claim_all(self) -> None:
         """A few words can still be missing at a passing score. Saying every

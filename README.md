@@ -88,6 +88,33 @@ The cause was one line: `\usepackage[T1]{fontenc}`, which forces the legacy
 is now loaded for pdfTeX only, where it is still needed and harmless; XeTeX uses
 its native Unicode Latin Modern instead and sets no f-ligatures at all.
 
+## The completeness check
+
+Job descriptions are acquired by dragging a mouse down a careers page. A
+selection that stops at a fold, a posting behind a "Show more" control, or
+requirements hidden in a collapsed tab all produce text that reads like a whole
+posting and is not one.
+
+That failure is silent *and* it points the wrong way. Matching and scoring stay
+perfectly honest about the text they were given — which means a truncated
+posting scores **higher** than the real one, because the half that never
+arrived is all the requirements nobody was measured against. The failure looks
+like good news.
+
+So `/match` and `/ats/check` both return `posting`, flagging text that:
+
+- ends on a **`Show more`** or ellipsis marker — the strongest signal, since
+  nobody ends a posting that way;
+- **stops mid-sentence**, on a dangling comma or a word that cannot close one
+  (a bullet list ending `Strong SQL skills` is *not* flagged — precision here
+  matters more than recall);
+- is **shorter than a full posting**;
+- states **no requirements or qualifications section** anywhere.
+
+It never refuses. A short posting is sometimes genuinely short, and an internal
+blurb is a legitimate thing to match against; refusing to score one would trade
+a silent overstatement for a hard stop on work you have every right to do.
+
 ---
 
 ## Quick start
@@ -195,7 +222,7 @@ with a stable machine-readable `code`.
 | GET | `/api/v1/meta` | Defaults, limits, font ladder, engine status. |
 | GET | `/api/v1/projects` | List projects. `?include_hidden=true` to inspect hidden ones. |
 | GET | `/api/v1/projects/{key}` | One project, with bullets as display text. |
-| POST | `/api/v1/match` | Rank projects against a JD; report gap terms. |
+| POST | `/api/v1/match` | Rank projects against a JD; report gap terms and whether the posting looks complete. |
 | POST | `/api/v1/resume/preview` | Render LaTeX **without compiling**. Works with no engine installed. |
 | POST | `/api/v1/resume/ats` | Score the assembled resume against a JD. Compiles nothing. |
 | POST | `/api/v1/resume/generate` | Compile, with the page-fit guarantee and the text-extraction check. |
@@ -204,7 +231,7 @@ with a stable machine-readable `code`.
 | POST | `/api/v1/knowledge` | Add knowledge from pasted text or an uploaded document. |
 | DELETE | `/api/v1/knowledge/entries` | Remove one entry by `category` and `value`. |
 | DELETE | `/api/v1/knowledge` | Empty the knowledge store. |
-| POST | `/api/v1/ats/check` | Score a JD against stored knowledge. Generates nothing. |
+| POST | `/api/v1/ats/check` | Score a JD against stored knowledge, with the same completeness check. Generates nothing. |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/resume/generate \
