@@ -22,6 +22,7 @@ from resume_tailor.api.schemas import (
     GateOut,
     RequirementOut,
 )
+from resume_tailor.api.v1.match import posting_out
 from resume_tailor.domain.ats import AtsReport, CategoryBreakdown
 
 router = APIRouter(tags=["ats"])
@@ -107,5 +108,6 @@ def check(payload: AtsRequest, service: ServiceDep, _: ApiKeyDep = None) -> AtsR
         gate_cap=report.gate_cap,
         knowledge_version=report.knowledge_version,
         bank_version=report.bank_version,
+        posting=posting_out(service.posting_check(payload.jd_text)),
         note=report.note,
     )

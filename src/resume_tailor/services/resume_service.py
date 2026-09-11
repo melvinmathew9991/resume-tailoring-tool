@@ -60,6 +60,7 @@ from resume_tailor.domain.models import (
     ProjectBank,
     ResumeSpec,
 )
+from resume_tailor.domain.posting import PostingCheck, check_posting
 from resume_tailor.render.engines.base import EngineStatus, PdfEngine
 from resume_tailor.render.pagefit import FitResult, compile_with_page_fit
 from resume_tailor.render.parsecheck import ParseCheck, check_parse
@@ -209,6 +210,16 @@ class ResumeService:
         return report
 
     # -- matching -----------------------------------------------------------
+
+    def posting_check(self, jd_text: str) -> PostingCheck:
+        """Whether the pasted job description looks complete.
+
+        Pure, and separate from `match`/`ats_check` on purpose. A truncated
+        posting is a fact about the *input*, not about the match or the score,
+        and both of those stay exactly as honest about the text they were given
+        as they were before. This only says how much to trust the text.
+        """
+        return check_posting(jd_text)
 
     def match(self, jd_text: str, include_hidden: bool = False) -> MatchReport:
         if not jd_text or not jd_text.strip():

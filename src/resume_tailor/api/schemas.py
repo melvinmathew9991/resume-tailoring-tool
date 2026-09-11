@@ -204,11 +204,33 @@ class MatchResultOut(ApiModel):
     domain_match: bool
 
 
+class PostingSignalOut(ApiModel):
+    code: str
+    detail: str
+
+
+class PostingCheckOut(ApiModel):
+    """Whether the pasted job description looks like the whole posting.
+
+    Advisory, never a rejection. A truncated posting scores *higher* than the
+    real one -- the part that was not pasted is all the requirements nobody was
+    measured against -- so the caller is told, and decides.
+    """
+
+    complete: bool
+    characters: int
+    words: int
+    has_requirements_section: bool
+    signals: list[PostingSignalOut] = Field(default_factory=list)
+    note: str
+
+
 class MatchResponse(ApiModel):
     ranked_projects: list[MatchResultOut]
     gap_terms: list[str]
     bank_version: str
     note: str
+    posting: PostingCheckOut
 
 
 # --- candidate knowledge (feature 1) ----------------------------------------
@@ -353,6 +375,7 @@ class AtsResponse(ApiModel):
     gate_cap: int = 0
     knowledge_version: str
     bank_version: str
+    posting: PostingCheckOut
     note: str
 
 

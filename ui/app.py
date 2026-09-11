@@ -168,6 +168,10 @@ def main() -> None:
     if state.match is None:
         st.stop()
 
+    # Raised here, between the paste and the ranking, because a posting that
+    # arrived half-complete makes every number below it look better than it is.
+    components.render_posting_check(state.match.posting)
+
     # -- step 2: selection ---------------------------------------------------
     st.header("2 · Choose projects")
     st.caption(components.MATCH_CAVEAT)

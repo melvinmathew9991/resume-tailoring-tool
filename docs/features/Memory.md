@@ -431,5 +431,54 @@ placeholder PDFs blank.
 `latex`-marked** (up from 9); coverage 93.6% against the 90% floor;
 `ruff format --check`, `ruff check` and `mypy --strict src ui` clean.
 
-Still open (spec Section 7): JD truncation detection, a stored gap log across
-JDs, and resume/Project-Points conflict detection.
+## JD completeness (spec section 1, step 1)
+
+"Confirm the JD text is complete (not truncated) ... say so explicitly and ask
+for the full text rather than guessing at what's missing."
+
+`domain/posting.py`, surfaced as `posting` on `/match` and `/ats/check`, and
+above the results in both UI views.
+
+**The asymmetry is the whole reason it matters.** Everything downstream is
+honest about the text it was given: the matcher ranks against the terms
+present, and the ATS score reports the requirements it found. Neither can know
+about a requirement that was never pasted -- so a truncated posting scores
+*higher* than the real one, because the missing half is all the demands the
+candidate was never measured against. A silent failure that looks like good
+news is the hardest kind to catch, which is why the UI caption says "higher"
+explicitly. Everyone's first instinct is that a partial posting must score low.
+
+Four signals, all read from the shape of the text rather than its meaning:
+a trailing `Show more`/ellipsis marker (the strongest -- nobody ends a posting
+that way); an ending on a dangling comma or on a word that cannot close a
+sentence; fewer than `MIN_POSTING_CHARS` characters of normalised text; and no
+requirements/qualifications heading anywhere.
+
+**Precision over recall, deliberately.** The most common real shape is a
+posting whose last line is a bullet with no full stop, so `_ends_mid_sentence`
+only fires on an explicit continuation word or dangling mark. A check that
+flagged `- Strong SQL skills` would fire on most real postings and teach the
+reader to ignore it -- the same reasoning that keeps the parse check quiet
+above 99% coverage.
+
+**It reports and never refuses.** A short posting is sometimes genuinely short
+and an internal blurb is a legitimate thing to match against; refusing to score
+one would trade a silent overstatement for a hard stop on legitimate work.
+`test_an_incomplete_posting_is_still_scored` pins that.
+
+`_REQUIREMENTS_RE` is deliberately broader than `ats._REQUIRED_HEADING_RE`.
+That one separates required from preferred *within* a posting already assumed
+complete; this one only asks whether the posting states its asks anywhere, so
+"What you'll need", "Who you are" and "The ideal candidate" all count.
+
+The mapper `posting_out` lives in `api/v1/match.py` and is imported by
+`api/v1/ats.py`, so the two endpoints cannot disagree about the same text --
+pinned by `test_both_endpoints_agree_about_the_same_text`. No separate wiring
+was needed for embedded mode: `EmbeddedBackendClient` calls the route functions
+directly for both endpoints.
+
+**Test count after this pass: 1287 fast**, 13 `latex`-marked; coverage 94.1%
+(`domain/posting.py` at 100%); format, lint and `mypy --strict src ui` clean.
+
+Still open (spec Section 7): a stored gap log across JDs, and
+resume/Project-Points conflict detection.
