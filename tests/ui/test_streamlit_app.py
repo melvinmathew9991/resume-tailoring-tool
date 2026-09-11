@@ -56,6 +56,76 @@ def matched(app: AppTest) -> AppTest:
     return app
 
 
+def _parse_panel_script(payload: dict[str, object]) -> None:
+    """Run as its own Streamlit script by ``AppTest.from_function``, which
+    re-executes the source in a fresh module -- so every name it uses has to be
+    imported inside it."""
+    from resume_tailor.api.schemas import ParseCheckOut
+    from ui import components
+
+    components.render_parse_check(ParseCheckOut.model_validate(payload), engine="fake")
+
+
+def parse_panel(status: str, **overrides: object) -> AppTest:
+    """Render just the parse-check panel, for the states a real compile on a
+    developer machine cannot produce on demand."""
+    findings = {
+        "pass": [],
+        "warn": [{"code": "ligatures", "severity": "warn", "detail": "two words use ligatures"}],
+        "fail": [{"code": "no_text", "severity": "fail", "detail": "nothing could be extracted"}],
+    }[status]
+    payload: dict[str, object] = {
+        "status": status,
+        "parses": status != "fail",
+        "characters": 4000,
+        "words": 700,
+        "term_coverage": 0.94,
+        "expected_terms": 500,
+        "missing_terms": ["classification", "mlflow"],
+        "links": ["mailto:test@example.com"],
+        "findings": findings,
+        "note": "how this was measured",
+        **overrides,
+    }
+
+    instance = AppTest.from_function(
+        _parse_panel_script, default_timeout=60, kwargs={"payload": payload}
+    )
+    instance.run()
+    return instance
+
+
+class TestParseCheckPanel:
+    def test_a_failure_is_an_error_not_a_caption(self) -> None:
+        """An unreadable PDF is the one outcome that must stop someone sending
+        the document, so it cannot be a line of grey text."""
+        app = parse_panel("fail")
+        assert not app.exception
+        assert any("ATS may not read" in item.value for item in app.error)
+
+    def test_a_warning_names_the_cause(self) -> None:
+        app = parse_panel("warn")
+        assert not app.exception
+        assert any("ligatures" in item.value for item in app.warning)
+
+    def test_the_detail_lists_the_words_that_were_lost(self) -> None:
+        """The actionable part: which keywords an ATS will not see."""
+        app = parse_panel("warn")
+        body = " ".join(item.value for item in app.markdown)
+        assert "classification" in body and "mlflow" in body
+
+    def test_further_findings_are_not_dropped(self) -> None:
+        app = parse_panel(
+            "warn",
+            findings=[
+                {"code": "ligatures", "severity": "warn", "detail": "first cause"},
+                {"code": "split_words", "severity": "warn", "detail": "second cause"},
+            ],
+        )
+        captions = " ".join(item.value for item in app.caption)
+        assert "second cause" in captions
+
+
 class TestInitialRender:
     def test_page_loads_without_error(self, app: AppTest) -> None:
         assert not app.exception
@@ -65,10 +135,17 @@ class TestInitialRender:
         assert any("Backend ready" in item.value for item in app.sidebar.success)
 
     def test_placeholder_engine_is_loudly_flagged(self, app: AppTest) -> None:
-        """Someone must never be able to mistake a blank placeholder PDF for a
-        real resume, so the notice is permanent rather than a one-time toast."""
+        """Someone must never be able to mistake a placeholder PDF for a real
+        resume, so the notice is permanent rather than a one-time toast.
+
+        It says *not typeset* rather than *blank*: the placeholder engine emits
+        the document's real words, so that the text-extraction check has
+        something to read. Calling the output blank would now be wrong, and a
+        notice that is wrong about one thing gets ignored about the rest.
+        """
         warnings = " ".join(item.value for item in app.sidebar.warning)
-        assert "blank" in warnings.lower()
+        assert "placeholder" in warnings.lower()
+        assert "not typeset" in warnings.lower()
         assert "tectonic" in warnings.lower()
 
     def test_analyse_is_clickable_before_the_text_area_commits(self, app: AppTest) -> None:
@@ -131,6 +208,16 @@ class TestGeneration:
         next(b for b in app.button if b.label == "Generate PDF").click().run()
         labels = {metric.label for metric in app.metric}
         assert {"Pages", "Font size", "Attempts", "Engine"} <= labels
+
+    def test_a_clean_parse_check_stays_quiet(self, app: AppTest) -> None:
+        """It reports, it does not congratulate. A green banner on every single
+        generation is one the reader learns to scroll past -- including on the
+        run where it finally has something to say."""
+        matched(app)
+        next(b for b in app.button if b.label == "Generate PDF").click().run()
+        captions = " ".join(item.value for item in app.caption)
+        assert "read back from the PDF" in captions
+        assert not any("ATS may not read" in item.value for item in app.error)
 
     def test_preview_renders_latex_without_compiling(self, app: AppTest) -> None:
         matched(app)

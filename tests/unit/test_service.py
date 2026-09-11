@@ -20,6 +20,7 @@ from resume_tailor.core.errors import (
 from resume_tailor.data.bank_repo import BankRepository
 from resume_tailor.data.profile_repo import ProfileRepository
 from resume_tailor.render.engines.fake import FakeEngine
+from resume_tailor.render.parsecheck import check_parse
 from resume_tailor.services.resume_service import ResumeService
 
 pytestmark = pytest.mark.unit
@@ -225,6 +226,37 @@ class TestGeneration:
         result = service.generate_sync(service.build_spec(["proj_a"]))
         assert result.fit.pdf_bytes.startswith(b"%PDF")
         assert service.documents.get(result.document.document_id)
+
+    def test_every_generation_carries_a_parse_check(self, service: ResumeService) -> None:
+        """Unconditional, not opt-in. A check a caller has to remember to ask
+        for is one that stops being run the week after it is written."""
+        result = service.generate_sync(service.build_spec(["proj_a"]))
+        assert result.parse.status == "pass"
+        assert result.parse.term_coverage == 1.0
+
+    def test_the_parse_check_sees_the_document_that_was_stored(
+        self, service: ResumeService
+    ) -> None:
+        """It must read the same bytes the user downloads, not a re-render."""
+        result = service.generate_sync(service.build_spec(["proj_a"]))
+        stored = service.documents.get(result.document.document_id)
+        assert check_parse(stored.pdf_bytes, service.build_spec(["proj_a"])) == result.parse
+
+    def test_a_document_an_ats_cannot_read_is_reported(
+        self, settings: Settings, data_dir: Path
+    ) -> None:
+        """The failure path, proven rather than assumed: the page count is
+        right, the PDF is valid, and a parser reads nothing."""
+        service = ResumeService(
+            settings=settings,
+            bank_repo=BankRepository(settings.bank_path),
+            profile_repo=ProfileRepository(settings.profile_path),
+            engine=FakeEngine(emit_blank_pages=True),
+        )
+        result = service.generate_sync(service.build_spec(["proj_a"]))
+        assert result.fit.fits, "the page-fit guarantee is a separate question"
+        assert not result.parse.parses
+        assert result.parse.findings[0].code == "no_text"
 
     def test_filename_is_derived_from_the_name(self, service: ResumeService) -> None:
         result = service.generate_sync(service.build_spec(["proj_a"]))

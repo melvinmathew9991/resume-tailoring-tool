@@ -31,14 +31,54 @@ The one safety property the whole tool is built around:
 > For every generated resume, either `page_count <= max_pages`, or `warning`
 > is non-empty. **Never neither.**
 
-Generation compiles at successively smaller font sizes (9.6pt down to a 8.8pt
-readability floor) until the document fits. If it never fits, you still get the
-PDF — but `fits` is `false` and `warning` explains that content needs trimming,
-not shrinking. This exists because an earlier hand-built resume silently
-compiled to three pages and shipped before anyone noticed.
+Generation compiles at a fixed 9.2pt. If the content does not fit, you still get
+the PDF — but `fits` is `false` and `warning` explains that content needs
+trimming, not shrinking. This exists because an earlier hand-built resume
+silently compiled to three pages and shipped before anyone noticed.
+
+Shrinking to fit was the original behaviour and was deliberately removed: two
+resumes generated a week apart came out at different sizes, and hiding a
+three-page resume at 8.8pt solved the symptom rather than the cause. Adding
+rungs back to `font_ladder` restores it with no code change.
 
 It is enforced by a Hypothesis property test over the whole input space, not
 just by the code that implements it.
+
+## The text-extraction check
+
+An ATS does not read your PDF. It reads whatever its parser can pull out of
+your PDF, and those are not the same thing.
+
+So every generated resume is opened again, its text extracted with `pypdf`, and
+compared against what the spec says is on the page. The result rides along on
+the generate response as `parse_check`:
+
+| Field | Meaning |
+|---|---|
+| `status` | `pass`, `warn` or `fail`. |
+| `term_coverage` | Share of the page's words that survived extraction. |
+| `missing_terms` | The words that did not. |
+| `links` | Link targets that are actually *clickable*, not merely printed. |
+| `findings` | One entry per cause, each naming its own remedy. |
+
+The causes are reported separately, because they have different fixes:
+
+- **`ligatures`** — `classification` is typeset with an `fi` ligature and
+  extracts as `classi<fi>cation`. On the page it is perfect; to a keyword scan
+  it is a different word. Fixable in the template.
+- **`split_words`** — a wide kerning pair (`F r`, `T o`) reads as a word
+  boundary, so `Frameworks` extracts as `F rameworks`. A property of the
+  extractor more than the document.
+- **`split_words` and `ligatures` are warnings, never failures.** The resume is
+  still worth sending; it simply matches a posting less well than its content
+  deserves.
+- **`no_text` / `little_text`** — the document is valid, the page count is
+  right, and a parser reads nothing. This one is a failure.
+- **`links_not_clickable`** — `hyperref` did not produce an annotation.
+
+Running this against the real resume with Tectonic is what found the ligature
+problem in the first place: 14 words including `classification`, `verification`
+and `MLflow` were on the page and invisible to a literal keyword match.
 
 ---
 
@@ -63,8 +103,9 @@ Linux. Run `python tasks.py` with no argument to see every task.
 ### Getting real PDFs
 
 Without a PDF engine the tool still runs end to end, but generated documents
-are **blank placeholders with an accurate page count** — useful for checking
-length, useless for sending. The UI says so, permanently and prominently.
+carry the right words and an accurate page count but are **not typeset** —
+useful for checking length and machine-readability, useless for sending. The UI
+says so, permanently and prominently.
 
 Install **Tectonic** — one self-contained binary, no TeX distribution:
 
@@ -125,11 +166,11 @@ pipeline, the error-code table, and the developer workflow.
 |---|---|
 | `tectonic` | Default. One binary, no TeX distribution. |
 | `pdflatex` | If you already have TeX Live or MiKTeX. Used in the API container. |
-| `fake` | In-process. Emits real, valid, multi-page PDFs whose page count responds to font size, so the entire pipeline is testable with no external binary. |
+| `fake` | In-process. Emits real, valid, multi-page PDFs that carry the document's text and links and whose page count responds to font size, so the entire pipeline — page fit *and* text extraction — is testable with no external binary. It does no typesetting, so only a real engine can prove the layout. |
 
 Selected with `RT_PDF_ENGINE` (`auto` probes in order). `auto` refuses to fall
-back to `fake` when `RT_ENVIRONMENT=prod`, so a blank placeholder can never be
-mistaken for a real resume in a deployment. Page counts are read in-process
+back to `fake` when `RT_ENVIRONMENT=prod`, so an untypeset placeholder can never
+be mistaken for a real resume in a deployment. Page counts are read in-process
 with `pypdf` — no `pdfinfo`, no `poppler-utils`.
 
 ---
@@ -149,7 +190,7 @@ with a stable machine-readable `code`.
 | POST | `/api/v1/match` | Rank projects against a JD; report gap terms. |
 | POST | `/api/v1/resume/preview` | Render LaTeX **without compiling**. Works with no engine installed. |
 | POST | `/api/v1/resume/ats` | Score the assembled resume against a JD. Compiles nothing. |
-| POST | `/api/v1/resume/generate` | Compile, with the page-fit guarantee. |
+| POST | `/api/v1/resume/generate` | Compile, with the page-fit guarantee and the text-extraction check. |
 | GET | `/api/v1/resume/{id}` | Stream the PDF. |
 | GET | `/api/v1/knowledge` | Everything the system knows about the candidate. |
 | POST | `/api/v1/knowledge` | Add knowledge from pasted text or an uploaded document. |

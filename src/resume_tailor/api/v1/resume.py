@@ -15,6 +15,8 @@ from fastapi import APIRouter, Response
 from resume_tailor.api.deps import ApiKeyDep, ServiceDep
 from resume_tailor.api.schemas import (
     GenerateResponse,
+    ParseCheckOut,
+    ParseFindingOut,
     PreviewResponse,
     ResumeAtsRequest,
     ResumeAtsResponse,
@@ -22,9 +24,55 @@ from resume_tailor.api.schemas import (
 )
 from resume_tailor.api.v1.ats import breakdown_out, gates_out
 from resume_tailor.domain.models import ResumeSpec
-from resume_tailor.services.resume_service import ResumeService
+from resume_tailor.render.parsecheck import ParseCheck
+from resume_tailor.services.resume_service import GenerationResult, ResumeService
 
 router = APIRouter(tags=["resume"])
+
+
+def parse_check_out(check: ParseCheck) -> ParseCheckOut:
+    return ParseCheckOut(
+        status=check.status,
+        parses=check.parses,
+        characters=check.characters,
+        words=check.words,
+        term_coverage=check.term_coverage,
+        expected_terms=check.expected_terms,
+        missing_terms=list(check.missing_terms),
+        links=list(check.links),
+        findings=[
+            ParseFindingOut(code=finding.code, severity=finding.severity, detail=finding.detail)
+            for finding in check.findings
+        ],
+        note=check.note,
+    )
+
+
+def build_generate_response(result: GenerationResult, max_pages: int) -> GenerateResponse:
+    """The one place a generation result becomes a response.
+
+    Shared with the embedded-mode client rather than duplicated there. The two
+    had already been written twice and would have drifted the moment a field
+    was added to one of them -- which is exactly what adding ``parse_check``
+    would have done.
+    """
+    fit = result.fit
+    return GenerateResponse(
+        document_id=result.document.document_id,
+        download_url=f"/api/v1/resume/{result.document.document_id}",
+        filename=result.document.filename,
+        page_count=fit.page_count,
+        max_pages=max_pages,
+        fits=fit.fits,
+        font_size_used=fit.font_size,
+        line_spacing_used=fit.line_spacing,
+        compile_attempts=fit.attempts,
+        engine=fit.engine,
+        warning=fit.warning,
+        source_warnings=list(fit.source_warnings),
+        bank_version=result.bank_version,
+        parse_check=parse_check_out(result.parse),
+    )
 
 
 def _build_spec(payload: ResumeRequest, service: ResumeService) -> ResumeSpec:
@@ -130,23 +178,7 @@ async def generate(
     """
     spec = _build_spec(payload, service)
     result = await service.generate(spec)
-    fit = result.fit
-
-    return GenerateResponse(
-        document_id=result.document.document_id,
-        download_url=f"/api/v1/resume/{result.document.document_id}",
-        filename=result.document.filename,
-        page_count=fit.page_count,
-        max_pages=payload.max_pages,
-        fits=fit.fits,
-        font_size_used=fit.font_size,
-        line_spacing_used=fit.line_spacing,
-        compile_attempts=fit.attempts,
-        engine=fit.engine,
-        warning=fit.warning,
-        source_warnings=list(fit.source_warnings),
-        bank_version=result.bank_version,
-    )
+    return build_generate_response(result, payload.max_pages)
 
 
 @router.get(

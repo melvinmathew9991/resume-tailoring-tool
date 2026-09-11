@@ -62,6 +62,7 @@ from resume_tailor.domain.models import (
 )
 from resume_tailor.render.engines.base import EngineStatus, PdfEngine
 from resume_tailor.render.pagefit import FitResult, compile_with_page_fit
+from resume_tailor.render.parsecheck import ParseCheck, check_parse
 from resume_tailor.render.renderer import render_source
 from resume_tailor.services.document_store import DocumentStore, StoredDocument
 
@@ -75,6 +76,14 @@ class GenerationResult:
     document: StoredDocument
     fit: FitResult
     bank_version: str
+    parse: ParseCheck
+    """What a text extractor finds in the compiled PDF.
+
+    Beside ``fit`` rather than inside it: the page-fit guarantee is about the
+    document's shape and is enforced by retrying, while this is about whether
+    the document can be read at all and is only ever reported. Folding the two
+    together would invite a future caller to treat a parse warning as a reason
+    to recompile, which it never is."""
 
 
 @dataclass(frozen=True)
@@ -740,6 +749,13 @@ class ResumeService:
             source_warnings=tuple(source_warnings),
         )
 
+        # Run on the compiled bytes, before the document is stored, so that no
+        # caller can be handed a PDF without the check that goes with it.
+        # Cheap next to the compile it follows -- one pypdf pass over two pages
+        # against a multi-second subprocess -- so it is unconditional rather
+        # than opt-in. A check nobody remembers to ask for is not a check.
+        parse = check_parse(fit.pdf_bytes, spec)
+
         document = self._documents.put(
             fit.pdf_bytes,
             filename=self._filename(spec),
@@ -754,9 +770,13 @@ class ResumeService:
             attempts=fit.attempts,
             engine=fit.engine,
             fits=fit.fits,
+            parses=parse.parses,
+            term_coverage=parse.term_coverage,
             bank_version=spec.bank_version,
         )
-        return GenerationResult(document=document, fit=fit, bank_version=spec.bank_version)
+        return GenerationResult(
+            document=document, fit=fit, bank_version=spec.bank_version, parse=parse
+        )
 
     async def generate(self, spec: ResumeSpec) -> GenerationResult:
         """Async wrapper: bounded concurrency, off the event loop.
