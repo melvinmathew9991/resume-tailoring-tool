@@ -391,6 +391,31 @@ class PreviewResponse(ApiModel):
     character_count: int
 
 
+class ParseFindingOut(ApiModel):
+    code: str
+    severity: str
+    """``fail`` or ``warn``. Only ``fail`` means an ATS would misread the
+    document; a ``warn`` is worth looking at before sending it."""
+    detail: str
+
+
+class ParseCheckOut(ApiModel):
+    """What a text extractor found in the compiled PDF (spec criterion 4)."""
+
+    status: str
+    """``pass``, ``warn`` or ``fail``."""
+    parses: bool
+    characters: int
+    words: int
+    term_coverage: float
+    """Share of the words the spec puts on the page that survived extraction."""
+    expected_terms: int
+    missing_terms: list[str] = Field(default_factory=list)
+    links: list[str] = Field(default_factory=list)
+    findings: list[ParseFindingOut] = Field(default_factory=list)
+    note: str
+
+
 class GenerateResponse(ApiModel):
     document_id: str
     """Fetch the bytes from ``GET /api/v1/resume/{document_id}``.
@@ -413,6 +438,7 @@ class GenerateResponse(ApiModel):
     guarantee: ``fits`` false implies this is set."""
     source_warnings: list[str] = Field(default_factory=list)
     bank_version: str
+    parse_check: ParseCheckOut
 
 
 class EngineStatusOut(ApiModel):

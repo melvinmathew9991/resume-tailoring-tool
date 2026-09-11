@@ -152,6 +152,21 @@ class TestResumeGeneration:
         assert download.content.startswith(b"%PDF")
         assert body["filename"] in download.headers["content-disposition"]
 
+    def test_response_carries_the_parse_check(self, client: TestClient) -> None:
+        """Spec criterion 4: the caller is told whether an ATS can read the
+        document, on the same response that hands them the document."""
+        body = client.post(
+            "/api/v1/resume/generate", json={"selected_project_keys": ["proj_a"]}
+        ).json()
+        check = body["parse_check"]
+        assert check["status"] == "pass"
+        assert check["parses"] is True
+        assert check["term_coverage"] == 1.0
+        assert check["expected_terms"] > 0
+        assert check["findings"] == []
+        assert "mailto:test@example.com" in check["links"]
+        assert check["note"]
+
     def test_response_carries_no_base64_blob(self, client: TestClient) -> None:
         """The PDF is streamed from its own endpoint; inlining it inflated
         every response by a third and buried the warning the user needed."""

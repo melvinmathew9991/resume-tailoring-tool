@@ -13,6 +13,7 @@ from resume_tailor.api.schemas import (
     GenerateResponse,
     MatchResponse,
     MatchResultOut,
+    ParseCheckOut,
     ReadinessResponse,
     ResumeAtsResponse,
 )
@@ -71,9 +72,9 @@ def render_backend_status(readiness: ReadinessResponse, mode: str) -> None:
     st.sidebar.caption(f"PDF engine: **{engine.get('name', 'unknown')}**")
     if engine.get("name") == "fake":
         st.sidebar.warning(
-            "No LaTeX engine is installed, so generated PDFs are **blank "
-            "placeholders with the right page count** -- useful for checking "
-            "length, not for sending anywhere.\n\n"
+            "No LaTeX engine is installed, so generated PDFs are **placeholders: "
+            "the right words and the right page count, but not typeset** -- useful "
+            "for checking length and machine-readability, not for sending anywhere.\n\n"
             "Install Tectonic (one self-contained binary) to get real output: "
             "`brew install tectonic`, `cargo install tectonic`, or on Windows "
             "the release binary from "
@@ -156,6 +157,8 @@ def render_result(result: GenerateResponse, pdf_bytes: bytes | None) -> None:
     for warning in result.source_warnings:
         st.caption(f"Source audit: {warning}")
 
+    render_parse_check(result.parse_check, engine=result.engine)
+
     if pdf_bytes:
         st.download_button(
             "Download PDF",
@@ -167,8 +170,46 @@ def render_result(result: GenerateResponse, pdf_bytes: bytes | None) -> None:
         if result.engine == "fake":
             st.caption(
                 "Reminder: this PDF came from the placeholder engine. The page "
-                "count is meaningful; the content is blank."
+                "count and the words are real; the typesetting is not, so the "
+                "layout checks below prove the plumbing rather than the page."
             )
+
+
+def render_parse_check(check: ParseCheckOut, *, engine: str) -> None:
+    """Whether an ATS can read the PDF that was just produced.
+
+    Kept quiet when it passes. This is a check that should almost always
+    succeed, and a green banner on every single generation trains the reader to
+    skip the whole panel -- including the run where it finally says something.
+    """
+    if check.status == "fail":
+        st.error(f"**An ATS may not read this PDF.** {check.findings[0].detail}", icon="🚫")
+    elif check.status == "warn":
+        st.warning(f"**Readable, with caveats.** {check.findings[0].detail}", icon="⚠️")
+    else:
+        st.caption(
+            f"Text extraction: all {check.expected_terms} expected words read back "
+            f"from the PDF, {len(check.links)} link(s) clickable."
+        )
+        return
+
+    for finding in check.findings[1:]:
+        st.caption(f"{finding.severity.title()}: {finding.detail}")
+
+    with st.expander("What the extractor found"):
+        columns = st.columns(3)
+        columns[0].metric("Words read back", f"{check.term_coverage:.0%}")
+        columns[1].metric("Characters", check.characters)
+        columns[2].metric("Clickable links", len(check.links))
+        if check.missing_terms:
+            st.write("**Words that did not survive extraction**")
+            st.write(", ".join(check.missing_terms))
+        if engine == "fake":
+            st.caption(
+                "The placeholder engine does no line breaking, so a real "
+                "compile is the only thing that can prove the layout."
+            )
+        st.caption(check.note)
 
 
 RESUME_ATS_CAVEAT = (

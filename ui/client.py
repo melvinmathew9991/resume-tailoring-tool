@@ -297,26 +297,11 @@ class EmbeddedBackendClient:
         return self._call(preview_route, request, self._service)  # type: ignore[no-any-return]
 
     def generate(self, request: ResumeRequest) -> GenerateResponse:
-        from resume_tailor.api.v1.resume import _build_spec
+        from resume_tailor.api.v1.resume import _build_spec, build_generate_response
 
         spec = self._call(_build_spec, request, self._service)
         result = self._call(self._service.generate_sync, spec)
-        fit = result.fit
-        return GenerateResponse(
-            document_id=result.document.document_id,
-            download_url=f"/api/v1/resume/{result.document.document_id}",
-            filename=result.document.filename,
-            page_count=fit.page_count,
-            max_pages=request.max_pages,
-            fits=fit.fits,
-            font_size_used=fit.font_size,
-            line_spacing_used=fit.line_spacing,
-            compile_attempts=fit.attempts,
-            engine=fit.engine,
-            warning=fit.warning,
-            source_warnings=list(fit.source_warnings),
-            bank_version=result.bank_version,
-        )
+        return build_generate_response(result, request.max_pages)
 
     def knowledge(self) -> KnowledgeResponse:
         from resume_tailor.api.v1.knowledge import build_knowledge_response

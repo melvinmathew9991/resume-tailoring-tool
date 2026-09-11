@@ -314,5 +314,89 @@ belongs to the location gate only.
 **Test count after the hard filters: 1144**; format, lint and
 `mypy --strict src ui` clean.
 
-Still open (spec Section 7): a PDF text-extraction check, JD truncation
-detection, a stored gap log across JDs.
+## The PDF text-extraction check (spec criterion 4)
+
+The last thing in the tool that reasoned about the resume without ever looking
+at the resume. The page-fit ladder counts pages; the resume ATS score reads
+`ResumeSpec`. Neither opened the compiled PDF and asked what a parser finds in
+it -- and an ATS only ever sees what its parser finds.
+
+`render/parsecheck.py` extracts the text back out with `pypdf` (already present
+for page counting, so no new dependency and no second binary) and compares it
+word-for-word against `expected_text(spec)` -- built from the typed spec, never
+from the rendered LaTeX, because the markup is the thing under test and
+deriving the expectation from it would compare the document against itself and
+pass unconditionally. It runs on every `generate_sync`, unconditionally, on the
+same bytes that get stored: a check a caller has to remember to ask for is one
+that stops being run the week after it is written.
+
+The check is **one-directional**. Only text that was expected and not found is
+reported; extra text is never a defect, because the template prints labels
+("GitHub:", section rules) that no model holds, and flagging those would make
+the whole panel noise.
+
+**It found a real defect on its first real compile.** Against Tectonic and the
+production `data/`, coverage was 96.8%, and the losses were not random:
+
+| Cause | Count | What it looks like |
+|---|---|---|
+| Ligatures | 14 words | `classification` is typeset with an `fi` ligature and extracts as one glyph, not two letters -- `verification`, `MLflow`, `significance`, `workflows`, `identified` all likewise |
+| Kerning splits | 3 words | `Frameworks` extracts as `F rameworks`; the wide `F r` pair reads as a word boundary. Also hit `FAISS` and `Tools` |
+
+Both are invisible on the page and total to a literal keyword scan, which is
+exactly the class of problem criterion 4 exists to catch. Neither is a content
+problem, so neither fails the document -- they are warnings, each naming its own
+remedy, because "3.4% of words are missing" is a number and "these are set with
+ligatures, those are split by kerning" is a diagnosis.
+
+**Verified fix for the ligatures, deliberately not applied.** Replacing the
+`fontenc` line with `fontspec` plus `Ligatures=NoCommon` takes the real resume
+from 27 ligature codepoints to 0, and coverage from 96.6% to 99.3%. It is left
+undone on purpose: `fontspec` is XeTeX/LuaTeX-only, so it needs an `iftex`
+conditional to keep the `pdflatex` engine working, and that means adding the
+conditional primitives and three package commands to `ALLOWED_COMMANDS` -- a
+deliberate widening of the LaTeX audit allowlist, which is a security boundary
+and the author's call to make. `microtype` was tried and changes nothing under
+XeTeX. The kerning splits survive every variant; they are a property of the
+extractor, not of the font.
+
+**False alarm found and fixed on the way.** `8--13` was reported as lost text:
+LaTeX turns `--` into an en dash, so the source and the page held the same
+authored text written two ways. `tokenize` now cuts en dashes, em dashes and
+`--` runs on both sides, while leaving a *single* hyphen alone -- splitting
+`scikit-learn` would turn one real keyword match into two that no posting asks
+for.
+
+### The placeholder engine now emits real text
+
+`FakeEngine` produced structurally valid blank pages, which would have made the
+parse check fail identically on a perfect document and a broken one -- that is,
+untestable anywhere without a TeX toolchain. It now lays the document's own
+words into a base-14 font content stream and emits a link annotation per link.
+What it still does not model is typesetting: no line breaking, no ligatures, no
+kerning. So the fake engine proves the plumbing, and only the `latex`-marked
+integration tests prove the layout.
+
+Consequence worth knowing: a ligature codepoint cannot be expressed in WinAnsi,
+so the ligature branch is tested by classifying synthetic extracted text
+directly rather than through a generated PDF. Every claim about the placeholder
+engine being "blank" was corrected -- README, the sidebar notice, and the test
+that pinned the old wording.
+
+### Also fixed while here
+
+`GenerateResponse` was built in two places -- the route and the embedded-mode
+client -- and `parse_check` would have been the second field to drift between
+them. Both now call `build_generate_response`, the same pattern
+`build_update_response` already established for knowledge.
+
+The README still described the five-step font ladder that was removed in favour
+of a fixed 9.2pt. Corrected, along with three places that called the
+placeholder PDFs blank.
+
+**Test count after this pass: 1213 fast** (up from 1144) **and 12
+`latex`-marked** (up from 9); coverage 93.6% against the 90% floor;
+`ruff format --check`, `ruff check` and `mypy --strict src ui` clean.
+
+Still open (spec Section 7): JD truncation detection, a stored gap log across
+JDs, and resume/Project-Points conflict detection.

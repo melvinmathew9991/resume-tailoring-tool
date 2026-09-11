@@ -157,6 +157,7 @@ renderer" failure *unrepresentable* rather than merely guarded against — see
 | `template_env.py` | Jinja environment using `\VAR{}` / `\BLOCK{}` delimiters instead of braces. |
 | `renderer.py` | `ResumeSpec` → `.tex`, then `audit_source()` — the allowlist check — before anything reaches a compiler. Also the single `_href()` chokepoint every link on the page is built through. |
 | `pagefit.py` | The font ladder and the page-fit guarantee. Counts pages in-process with `pypdf`. |
+| `parsecheck.py` | The text-extraction check (spec criterion 4): extracts the compiled PDF's text and link annotations back out with `pypdf` and compares them against what the spec put on the page. Reports; never retries. |
 | `engines/base.py` | `PdfEngine` protocol and `SubprocessEngine` — temp dir, env sandbox, timeout, size cap, typed failures. |
 | `engines/tectonic.py` | Default engine. One self-contained binary. |
 | `engines/pdflatex.py` | For existing TeX installs; used in the API container. |
@@ -243,6 +244,7 @@ sequenceDiagram
   participant S as ResumeService
   participant R as renderer
   participant P as pagefit
+  participant C as parsecheck
   participant E as PdfEngine
   participant D as DocumentStore
 
@@ -273,9 +275,12 @@ sequenceDiagram
     end
   end
 
+  S->>C: check_parse(pdf_bytes, spec)
+  C->>C: extract text + link annotations (pypdf)
+  C-->>S: ParseCheck (reported, never retried)
   S->>D: put(pdf_bytes) → document_id
   S-->>A: GenerationResult
-  A-->>U: metadata: pages, fits, font_size, warning, document_id
+  A-->>U: metadata: pages, fits, font_size, warning,<br/>parse_check, document_id
   U->>A: GET /api/v1/resume/{document_id}
   A-->>U: application/pdf stream
 ```

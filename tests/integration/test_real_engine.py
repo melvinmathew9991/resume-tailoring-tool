@@ -20,6 +20,7 @@ from resume_tailor.data.bank_repo import BankRepository
 from resume_tailor.data.profile_repo import ProfileRepository
 from resume_tailor.render.engines.registry import available_engines
 from resume_tailor.render.pagefit import count_pages
+from resume_tailor.render.parsecheck import MIN_CHARACTERS, expected_links
 from resume_tailor.services.resume_service import ResumeService
 
 pytestmark = [pytest.mark.integration, pytest.mark.latex, pytest.mark.slow]
@@ -118,6 +119,40 @@ class TestRealCompilation:
         first = real_engine_service.generate_sync(spec).fit.pdf_bytes
         second = real_engine_service.generate_sync(spec).fit.pdf_bytes
         assert first == second
+
+
+@requires_engine
+class TestRealTextExtraction:
+    """Spec criterion 4 against a real typesetter.
+
+    The placeholder engine can prove the check's plumbing and nothing else: it
+    does no line breaking, sets no ligatures and applies no kerning, which are
+    the three things that actually break PDF text extraction. Only these tests
+    exercise the case the check was written for.
+    """
+
+    def test_the_compiled_pdf_is_machine_readable(self, real_engine_service: ResumeService) -> None:
+        result = real_engine_service.generate_sync(real_engine_service.build_spec(["proj_a"]))
+        check = result.parse
+        assert check.characters > MIN_CHARACTERS
+        assert check.parses, f"a real compile must stay readable: {check.findings}"
+        assert not [f for f in check.findings if f.code in {"no_text", "little_text"}]
+
+    def test_hyperref_produces_clickable_links(self, real_engine_service: ResumeService) -> None:
+        """A printed link and a followable link are different objects, and only
+        a real compile can prove ``hyperref`` produced the second one."""
+        spec = real_engine_service.build_spec(["proj_a"])
+        result = real_engine_service.generate_sync(spec)
+        assert sorted(result.parse.links) == sorted(expected_links(spec))
+        assert not [f for f in result.parse.findings if f.code == "links_not_clickable"]
+
+    def test_most_of_the_page_round_trips(self, real_engine_service: ResumeService) -> None:
+        """A floor, not a target. Ligature and kerning losses are reported
+        rather than failed -- see ``docs/features/Memory.md`` -- but a real
+        compile dropping more than a twentieth of its own words is a
+        regression in the template, not a typographic nicety."""
+        result = real_engine_service.generate_sync(real_engine_service.build_spec(["proj_a"]))
+        assert result.parse.term_coverage >= 0.95, sorted(result.parse.missing_terms)
 
 
 @requires_engine
