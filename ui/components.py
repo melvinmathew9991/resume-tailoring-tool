@@ -175,6 +175,26 @@ def render_result(result: GenerateResponse, pdf_bytes: bytes | None) -> None:
             )
 
 
+def _clean_extraction_caption(check: ParseCheckOut) -> str:
+    """The quiet line shown when the check passes.
+
+    It reports the real count rather than claiming "all". A handful of words
+    can still be missing at a passing score -- a wide kerning pair splitting
+    ``Frameworks`` into ``F rameworks`` is not worth a banner, but saying every
+    word came back when three did not is the kind of small lie that makes a
+    reader stop believing the rest of the panel.
+    """
+    links = f"{len(check.links)} link(s) clickable"
+    if not check.missing_terms:
+        return f"Text extraction: all {check.expected_terms} expected words read back, {links}."
+    found = check.expected_terms - len(check.missing_terms)
+    lost = ", ".join(check.missing_terms[:6])
+    return (
+        f"Text extraction: {found} of {check.expected_terms} expected words read back "
+        f"({len(check.missing_terms)} missing: {lost}), {links}."
+    )
+
+
 def render_parse_check(check: ParseCheckOut, *, engine: str) -> None:
     """Whether an ATS can read the PDF that was just produced.
 
@@ -187,10 +207,7 @@ def render_parse_check(check: ParseCheckOut, *, engine: str) -> None:
     elif check.status == "warn":
         st.warning(f"**Readable, with caveats.** {check.findings[0].detail}", icon="⚠️")
     else:
-        st.caption(
-            f"Text extraction: all {check.expected_terms} expected words read back "
-            f"from the PDF, {len(check.links)} link(s) clickable."
-        )
+        st.caption(_clean_extraction_caption(check))
         return
 
     for finding in check.findings[1:]:

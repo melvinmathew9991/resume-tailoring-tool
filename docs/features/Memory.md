@@ -340,7 +340,7 @@ production `data/`, coverage was 96.8%, and the losses were not random:
 
 | Cause | Count | What it looks like |
 |---|---|---|
-| Ligatures | 14 words | `classification` is typeset with an `fi` ligature and extracts as one glyph, not two letters -- `verification`, `MLflow`, `significance`, `workflows`, `identified` all likewise |
+| Ligatures | 14 words | `classification` is typeset with an `fi` ligature and extracts as one glyph, not two letters -- `verification`, `MLflow`, `significance`, `workflows`, `identified` all likewise. **Fixed, see below.** |
 | Kerning splits | 3 words | `Frameworks` extracts as `F rameworks`; the wide `F r` pair reads as a word boundary. Also hit `FAISS` and `Tools` |
 
 Both are invisible on the page and total to a literal keyword scan, which is
@@ -349,16 +349,37 @@ problem, so neither fails the document -- they are warnings, each naming its own
 remedy, because "3.4% of words are missing" is a number and "these are set with
 ligatures, those are split by kerning" is a diagnosis.
 
-**Verified fix for the ligatures, deliberately not applied.** Replacing the
-`fontenc` line with `fontspec` plus `Ligatures=NoCommon` takes the real resume
-from 27 ligature codepoints to 0, and coverage from 96.6% to 99.3%. It is left
-undone on purpose: `fontspec` is XeTeX/LuaTeX-only, so it needs an `iftex`
-conditional to keep the `pdflatex` engine working, and that means adding the
-conditional primitives and three package commands to `ALLOWED_COMMANDS` -- a
-deliberate widening of the LaTeX audit allowlist, which is a security boundary
-and the author's call to make. `microtype` was tried and changes nothing under
-XeTeX. The kerning splits survive every variant; they are a property of the
-extractor, not of the font.
+**The ligature half is now fixed** (applied after the check landed, on the
+author's decision). The preamble asks which engine is running: under XeTeX and
+LuaTeX it loads `fontspec` and sets `Ligatures=NoCommon`; under pdfTeX it keeps
+exactly what the template always had, `cmap` plus T1 `fontenc`, because
+`fontspec` does not run there at all. Measured on the real resume: **27 ligature
+codepoints to 0, and coverage 96.8% to 99.4%** -- `classification`,
+`verification`, `MLflow` and eleven others now read back. `microtype` was tried
+first and changes nothing under XeTeX.
+
+The kerning splits survive every variant and are still reported. They are a
+property of the extractor rather than of the font, so there is nothing in the
+template that would fix them.
+
+**What it cost, and why that was acceptable.** `\ifPDFTeX`, `\else`, `\fi` and
+`\defaultfontfeatures` had to go on `ALLOWED_COMMANDS`, which is the security
+boundary this project deliberately makes hard to widen. The reasoning is
+recorded beside them in `domain/latex.py` and pinned by
+`TestConditionalsAreNotAWayIn`: none of the four can read a file, write a file,
+define a macro or reach a shell; `input`, `write`, `csname` and `def` stay in
+`DANGEROUS_COMMANDS` and are rejected whatever conditional they appear inside,
+because the audit is a flat scan of rendered source and evaluates nothing. User
+text cannot become a command in the first place -- a summary goes through
+`escape_user_text`, so a typed `\fi` lands on the page as characters.
+
+`\defaultfontfeatures` was missed on the first attempt and the audit caught it,
+which is the allowlist behaving exactly as designed.
+
+The pdfTeX branch is unverified locally (no TeX Live on this machine) and the
+`texlive` CI job only runs nightly and on tags. It is safe by construction --
+that branch is byte-for-byte what the template carried before -- but the first
+nightly run after this is the one that proves it.
 
 **False alarm found and fixed on the way.** `8--13` was reported as lost text:
 LaTeX turns `--` into an en dash, so the source and the page held the same
@@ -394,7 +415,7 @@ The README still described the five-step font ladder that was removed in favour
 of a fixed 9.2pt. Corrected, along with three places that called the
 placeholder PDFs blank.
 
-**Test count after this pass: 1213 fast** (up from 1144) **and 12
+**Test count after this pass: 1230 fast** (up from 1144) **and 13
 `latex`-marked** (up from 9); coverage 93.6% against the 90% floor;
 `ruff format --check`, `ruff check` and `mypy --strict src ui` clean.
 

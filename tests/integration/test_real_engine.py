@@ -146,13 +146,29 @@ class TestRealTextExtraction:
         assert sorted(result.parse.links) == sorted(expected_links(spec))
         assert not [f for f in result.parse.findings if f.code == "links_not_clickable"]
 
-    def test_most_of_the_page_round_trips(self, real_engine_service: ResumeService) -> None:
-        """A floor, not a target. Ligature and kerning losses are reported
-        rather than failed -- see ``docs/features/Memory.md`` -- but a real
-        compile dropping more than a twentieth of its own words is a
-        regression in the template, not a typographic nicety."""
+    def test_the_page_round_trips_essentially_completely(
+        self, real_engine_service: ResumeService
+    ) -> None:
+        """The floor that the font setup buys.
+
+        Before the preamble turned common ligatures off, the real resume
+        round-tripped 96.6%; afterwards, 99.4%. This sits between the two, so
+        losing the font conditional fails here rather than quietly costing a
+        candidate fourteen keywords. What remains is kerning, which no font
+        setting fixes.
+        """
         result = real_engine_service.generate_sync(real_engine_service.build_spec(["proj_a"]))
-        assert result.parse.term_coverage >= 0.95, sorted(result.parse.missing_terms)
+        assert result.parse.term_coverage >= 0.98, sorted(result.parse.missing_terms)
+
+    def test_no_word_is_lost_to_a_ligature(self, real_engine_service: ResumeService) -> None:
+        """The specific regression the font conditional exists to prevent.
+
+        ``classification`` set with an ``fi`` ligature extracts as one glyph
+        and matches no keyword scan. This is the assertion that fails if the
+        ``\\else`` branch is ever dropped from the template.
+        """
+        result = real_engine_service.generate_sync(real_engine_service.build_spec(["proj_a"]))
+        assert not [f for f in result.parse.findings if f.code == "ligatures"]
 
 
 @requires_engine

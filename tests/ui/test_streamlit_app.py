@@ -96,6 +96,21 @@ def parse_panel(status: str, **overrides: object) -> AppTest:
 
 
 class TestParseCheckPanel:
+    def test_a_pass_with_losses_does_not_claim_all(self) -> None:
+        """A few words can still be missing at a passing score. Saying every
+        word came back when three did not is the small lie that makes a reader
+        stop believing the rest of the panel."""
+        app = parse_panel("pass", term_coverage=0.994, missing_terms=["faiss", "tools"])
+        captions = " ".join(item.value for item in app.caption)
+        assert "498 of 500" in captions
+        assert "faiss" in captions
+        assert "all 500" not in captions
+
+    def test_a_clean_pass_says_all(self) -> None:
+        app = parse_panel("pass", missing_terms=[])
+        captions = " ".join(item.value for item in app.caption)
+        assert "all 500 expected words" in captions
+
     def test_a_failure_is_an_error_not_a_caption(self) -> None:
         """An unreadable PDF is the one outcome that must stop someone sending
         the document, so it cannot be a line of grey text."""
@@ -216,7 +231,8 @@ class TestGeneration:
         matched(app)
         next(b for b in app.button if b.label == "Generate PDF").click().run()
         captions = " ".join(item.value for item in app.caption)
-        assert "read back from the PDF" in captions
+        assert "Text extraction:" in captions
+        assert "read back" in captions
         assert not any("ATS may not read" in item.value for item in app.error)
 
     def test_preview_renders_latex_without_compiling(self, app: AppTest) -> None:
