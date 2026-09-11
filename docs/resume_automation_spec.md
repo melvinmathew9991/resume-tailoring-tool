@@ -295,7 +295,7 @@ How the tool maps to this spec. Sections 1–6 describe the process; this sectio
 
 | Step | Status |
 |---|---|
-| 1. Input validation | Partial: empty and over-length JDs are refused; truncation isn't detected. |
+| 1. Input validation | **Implemented.** Empty and over-length JDs are refused. Completeness is reported, never enforced: a posting is flagged when it ends on a "show more"/ellipsis marker, stops mid-sentence (on a dangling comma or a word that cannot close one), is shorter than a full posting, or states no requirements/qualifications section anywhere. Advisory rather than a rejection, because a truncated posting still ranks and scores honestly against the text it was given -- the point of the warning is that it scores *higher* than the real posting would, since the part that never arrived is the part nobody was measured against. Surfaced on `/match` and `/ats/check` as `posting`, and in both UI views above the results. |
 | 2 & 7. Before/after score | No rewrite step, so no delta. The resume score (`/resume/ats`) scores the assembled resume against the JD. |
 | 3. Score breakdown | Implemented: each requirement is exact / related / missing, with the candidate term and file that matched, and whether the posting marked it preferred. |
 | 4. Recommendations | Partial: the resume score lists `covered_elsewhere` — requirements the resume misses but the candidate's record covers (the "closeable with existing evidence" group). No reframing suggestions. |

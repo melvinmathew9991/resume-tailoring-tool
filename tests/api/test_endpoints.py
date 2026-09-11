@@ -136,6 +136,57 @@ class TestMatch:
         assert "proj_hidden" not in [r["key"] for r in body["ranked_projects"]]
 
 
+class TestPostingCompleteness:
+    """Spec section 1, step 1, on both endpoints that take a job description."""
+
+    FULL = (
+        "Senior Data Scientist\n\nAbout the role\nYou will build and validate "
+        "predictive models for our lending business, working with engineers and "
+        "product managers to ship them into production systems.\n\n"
+        "Responsibilities\n- Build classification and regression models\n"
+        "- Partner with engineering to deploy them\n- Present findings clearly\n\n"
+        "Requirements\n- 3+ years of experience in Python and SQL\n"
+        "- Strong background in statistics and machine learning\n"
+        "- Experience with scikit-learn or similar frameworks\n"
+        "- Bachelor's degree in a quantitative field\n"
+    )
+
+    @pytest.mark.parametrize(
+        ("path", "body"),
+        [("/api/v1/match", "jd_text"), ("/api/v1/ats/check", "jd_text")],
+    )
+    def test_a_complete_posting_is_reported_complete(
+        self, client: TestClient, path: str, body: str
+    ) -> None:
+        posting = client.post(path, json={body: self.FULL}).json()["posting"]
+        assert posting["complete"] is True
+        assert posting["signals"] == []
+        assert posting["has_requirements_section"] is True
+        assert posting["note"]
+
+    @pytest.mark.parametrize("path", ["/api/v1/match", "/api/v1/ats/check"])
+    def test_a_truncated_posting_is_flagged(self, client: TestClient, path: str) -> None:
+        posting = client.post(path, json={"jd_text": self.FULL + "\nShow more"}).json()["posting"]
+        assert posting["complete"] is False
+        assert "truncation_marker" in {signal["code"] for signal in posting["signals"]}
+
+    def test_both_endpoints_agree_about_the_same_text(self, client: TestClient) -> None:
+        """One shared mapper, so a posting cannot be complete on one endpoint
+        and truncated on the other."""
+        text = self.FULL + " and"
+        match = client.post("/api/v1/match", json={"jd_text": text}).json()["posting"]
+        ats = client.post("/api/v1/ats/check", json={"jd_text": text}).json()["posting"]
+        assert match == ats
+
+    def test_an_incomplete_posting_is_still_scored(self, client: TestClient) -> None:
+        """Advisory, never a rejection. Refusing to score a short posting would
+        trade a silent overstatement for a hard stop on legitimate work."""
+        response = client.post("/api/v1/match", json={"jd_text": "Python and SQL needed with"})
+        assert response.status_code == 200
+        assert response.json()["posting"]["complete"] is False
+        assert "ranked_projects" in response.json()
+
+
 class TestResumeGeneration:
     def test_generates_and_downloads(self, client: TestClient) -> None:
         response = client.post(

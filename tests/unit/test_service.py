@@ -221,6 +221,37 @@ class TestMatchService:
         assert "proj_hidden" not in keys
 
 
+class TestPostingCheck:
+    def test_it_reports_a_complete_posting(self, service: ResumeService) -> None:
+        text = (
+            "Data Scientist\n\nAbout the role\nYou will build and validate "
+            "predictive models for our lending business, working alongside "
+            "engineers and product managers to ship them into production.\n\n"
+            "Responsibilities\n- Build classification and regression models\n"
+            "- Partner with engineering to deploy and monitor them\n"
+            "- Present findings to non-technical stakeholders\n\n"
+            "Requirements\n- 3+ years of Python and SQL experience\n"
+            "- Strong statistics background and a quantitative degree\n"
+            "- Experience shipping models into production systems at scale\n"
+        )
+        assert service.posting_check(text).complete
+
+    def test_it_flags_a_fragment(self, service: ResumeService) -> None:
+        check = service.posting_check("Python and SQL needed with")
+        assert not check.complete
+        assert "too_short" in {signal.code for signal in check.signals}
+
+    def test_matching_is_unaffected_by_an_incomplete_posting(self, service: ResumeService) -> None:
+        """The check describes the input; it must not change the ranking.
+
+        Matching stays exactly as honest about the text it was given as it was
+        before -- which is the whole reason a separate signal is needed.
+        """
+        jd = "Python and SQL needed with"
+        assert service.match(jd).ranked_projects == service.match(jd).ranked_projects
+        assert not service.posting_check(jd).complete
+
+
 class TestGeneration:
     def test_generates_and_stores_a_document(self, service: ResumeService) -> None:
         result = service.generate_sync(service.build_spec(["proj_a"]))
