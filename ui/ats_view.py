@@ -53,6 +53,7 @@ def render(client: BackendClient, state: AppState) -> None:
     if state.ats is None:
         st.stop()
 
+    components.render_posting_check(state.ats.posting)
     _render_score(state.ats)
     components.render_gates(
         state.ats.gates,

@@ -16,9 +16,32 @@ from resume_tailor.api.schemas import (
     MatchRequest,
     MatchResponse,
     MatchResultOut,
+    PostingCheckOut,
+    PostingSignalOut,
 )
+from resume_tailor.domain.posting import PostingCheck
 
 router = APIRouter(tags=["match"])
+
+
+def posting_out(check: PostingCheck) -> PostingCheckOut:
+    """Map the completeness check to the wire model.
+
+    Shared with ``/ats/check``, which asks the same question of the same input.
+    Two copies would eventually disagree about whether a posting is complete,
+    and the disagreement would surface as one endpoint warning where the other
+    stayed silent about the very same text.
+    """
+    return PostingCheckOut(
+        complete=check.complete,
+        characters=check.characters,
+        words=check.words,
+        has_requirements_section=check.has_requirements_section,
+        signals=[
+            PostingSignalOut(code=signal.code, detail=signal.detail) for signal in check.signals
+        ],
+        note=check.note,
+    )
 
 
 @router.post(
@@ -48,5 +71,6 @@ def match(payload: MatchRequest, service: ServiceDep, _: ApiKeyDep = None) -> Ma
         ],
         gap_terms=report.gap_terms,
         bank_version=report.bank_version,
+        posting=posting_out(service.posting_check(payload.jd_text)),
         note=report.note,
     )

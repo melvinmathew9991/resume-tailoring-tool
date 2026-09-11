@@ -14,6 +14,7 @@ from resume_tailor.api.schemas import (
     MatchResponse,
     MatchResultOut,
     ParseCheckOut,
+    PostingCheckOut,
     ReadinessResponse,
     ResumeAtsResponse,
 )
@@ -173,6 +174,28 @@ def render_result(result: GenerateResponse, pdf_bytes: bytes | None) -> None:
                 "count and the words are real; the typesetting is not, so the "
                 "layout checks below prove the plumbing rather than the page."
             )
+
+
+def render_posting_check(check: PostingCheckOut) -> None:
+    """Whether the pasted job description looks like the whole posting.
+
+    Shown above the results rather than below them, and worded as a question
+    about the *input*. The trap this exists to close is that a truncated
+    posting scores higher than the real one, so the moment to raise it is
+    before the reader has a number to be pleased about.
+    """
+    if check.complete:
+        return
+    st.warning(
+        "**This job description may be incomplete.** "
+        + " ".join(signal.detail for signal in check.signals),
+        icon="✂️",
+    )
+    st.caption(
+        "Scored anyway, against what was pasted. A posting that is missing its "
+        "requirements scores *higher* than the real one, not lower — the part "
+        "that did not arrive is the part nobody was measured against."
+    )
 
 
 def _clean_extraction_caption(check: ParseCheckOut) -> str:

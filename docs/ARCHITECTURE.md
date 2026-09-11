@@ -137,6 +137,7 @@ renderer" failure *unrepresentable* rather than merely guarded against — see
 | `models.py` | `Project`, `ProjectBank`, `PersonalInfo`, `Profile`, `MatchResult`, `MatchReport`, `ResumeSpec`. All `extra="forbid"`. |
 | `latex.py` | Escaping, display-text conversion, the `**bold**` markup subset, and the audit primitives: `ALLOWED_COMMANDS`, `find_unknown_commands`, `find_unescaped_specials`, `count_unbalanced_braces`. |
 | `matching.py` | Boundary-anchored keyword scoring, alias expansion, domain bonus, gap-term extraction. Reused by both standalone features. |
+| `posting.py` | Whether a pasted job description looks complete (spec section 1, step 1). Advisory only: a truncated posting scores higher than the real one, so the caller is told and decides. |
 | `vocabulary.py` | The curated term list, shared by knowledge extraction and ATS scoring so the two sides stay comparable. |
 | `extraction.py` | PDF/DOCX/text to normalised plain text, plus resume section splitting. No new dependency: `pypdf` was already here, and a `.docx` is a zip. |
 | `knowledge.py` | `KnowledgeBase` and the rule-based extractor. Merge is additive and de-duplicated; every entry cites the line it came from. |
