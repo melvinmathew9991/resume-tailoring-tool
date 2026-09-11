@@ -289,6 +289,24 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
         "textendash",
         "textemdash",
         "\\",
+        # Engine-conditional font setup. The template has to ask which engine
+        # is running, because turning off the f-ligatures -- the difference
+        # between a resume an ATS can read and one it cannot -- is done by
+        # fontspec under XeTeX and by cmap plus T1 fontenc under pdfTeX.
+        #
+        # Widening an allowlist is the thing this module exists to make
+        # deliberate, so: none of these three can read a file, write a file,
+        # define a macro or reach a shell -- `input`, `write`, `csname`, `def`
+        # and the rest stay in DANGEROUS_COMMANDS and are rejected whatever
+        # conditional they appear inside. The worst a stray `\fi` in content
+        # can do is produce a TeX error, which surfaces as a typed 422 rather
+        # than a resume. And content never reaches the source as a command in
+        # the first place: a summary goes through `escape_user_text`, so a
+        # user who types `\fi` gets the literal characters on their page.
+        "ifPDFTeX",
+        "else",
+        "fi",
+        "defaultfontfeatures",
     }
 )
 

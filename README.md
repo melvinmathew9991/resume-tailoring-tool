@@ -63,9 +63,10 @@ the generate response as `parse_check`:
 
 The causes are reported separately, because they have different fixes:
 
-- **`ligatures`** — `classification` is typeset with an `fi` ligature and
-  extracts as `classi<fi>cation`. On the page it is perfect; to a keyword scan
-  it is a different word. Fixable in the template.
+- **`ligatures`** — `classification` typeset with an `fi` ligature extracts as
+  one glyph, not two letters. On the page it is perfect; to a keyword scan it is
+  a different word. **The template now turns common ligatures off**, so this
+  should stay silent — if it fires, the font setup regressed.
 - **`split_words`** — a wide kerning pair (`F r`, `T o`) reads as a word
   boundary, so `Frameworks` extracts as `F rameworks`. A property of the
   extractor more than the document.
@@ -78,7 +79,13 @@ The causes are reported separately, because they have different fixes:
 
 Running this against the real resume with Tectonic is what found the ligature
 problem in the first place: 14 words including `classification`, `verification`
-and `MLflow` were on the page and invisible to a literal keyword match.
+and `MLflow` were on the page and invisible to a literal keyword match. Fixing
+the font setup took extraction from 96.8% to **99.4%**; what remains is kerning,
+which no font setting fixes.
+
+The preamble picks its font setup per engine — `fontspec` with
+`Ligatures=NoCommon` under XeTeX/LuaTeX, `cmap` plus T1 `fontenc` under pdfTeX,
+which is that engine's own answer to the same problem.
 
 ---
 

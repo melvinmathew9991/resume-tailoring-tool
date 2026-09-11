@@ -13,6 +13,8 @@ from fastapi.testclient import TestClient
 
 from resume_tailor.core.errors import InvalidInputError, UnsafeContentError
 from resume_tailor.domain.latex import (
+    ALLOWED_COMMANDS,
+    DANGEROUS_COMMANDS,
     count_unbalanced_braces,
     escape_user_text,
     find_unescaped_specials,
@@ -86,6 +88,47 @@ class TestServiceRejectsDangerousInput:
         assert warnings == []
         assert r"50\%" in tex
         assert tex.rstrip().endswith(r"\end{document}")
+
+
+class TestConditionalsAreNotAWayIn:
+    r"""``\ifPDFTeX``, ``\else`` and ``\fi`` were added to the allowlist so the
+    preamble could pick a font setup per engine. That widened the one boundary
+    this module exists to guard, so each way it could be abused is pinned here.
+    """
+
+    @pytest.mark.parametrize("payload", [r"\fi", r"\ifPDFTeX", r"\else \input{/etc/passwd} \fi"])
+    def test_a_conditional_in_a_summary_becomes_literal_text(
+        self, service: ResumeService, payload: str
+    ) -> None:
+        """User text is escaped before it reaches the source, so a typed
+        ``\fi`` lands on the page as characters and never as a command."""
+        try:
+            spec = service.build_spec(["proj_a"], summary=f"Delivered {payload} results")
+        except UnsafeContentError:
+            return  # the \input payload is refused outright, which is stronger
+        tex, warnings = service.render_preview(spec)
+        assert warnings == []
+        assert r"\textbackslash{}" in tex
+        assert tex.rstrip().endswith(r"\end{document}")
+
+    def test_the_document_conditional_is_still_balanced_afterwards(
+        self, service: ResumeService
+    ) -> None:
+        spec = service.build_spec(["proj_a"], summary=r"Closing \fi early")
+        tex, _ = service.render_preview(spec)
+        assert tex.count(r"\ifPDFTeX") == tex.count(r"\fi") == 1
+
+    @pytest.mark.parametrize("command", ["input", "csname", "def", "write", "immediate"])
+    def test_dangerous_commands_are_still_dangerous(self, command: str) -> None:
+        """The allowlist got three conditionals, not an amnesty. Nothing that
+        reads a file, defines a macro or reaches a shell moved."""
+        assert command in DANGEROUS_COMMANDS
+        assert command not in ALLOWED_COMMANDS
+
+    def test_a_conditional_cannot_smuggle_a_dangerous_command(self) -> None:
+        """The audit is a flat scan of the rendered source: wrapping something
+        in a conditional does not hide it, because nothing is evaluated."""
+        assert find_unknown_commands(r"\ifPDFTeX \input{/etc/passwd} \fi") == ["input"]
 
 
 @app_backed

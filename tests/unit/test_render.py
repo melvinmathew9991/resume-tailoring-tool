@@ -120,6 +120,48 @@ class TestRenderSource:
         assert r"\section*{Experience}" not in tex
 
 
+class TestEngineConditionalFontSetup:
+    """The preamble asks which engine is running, and it has to keep asking.
+
+    Turning off the f-ligatures is the difference between a resume an ATS can
+    read and one it cannot -- measured on the real resume, 14 words including
+    ``classification`` and ``MLflow`` -- and the two engines answer it with
+    different packages. Deleting either branch silently reintroduces the
+    problem on that engine, with no error anywhere.
+    """
+
+    def test_both_engine_branches_are_present(
+        self, service: ResumeService, settings: Settings
+    ) -> None:
+        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
+        assert r"\ifPDFTeX" in tex and r"\else" in tex and r"\fi" in tex
+
+    def test_xetex_turns_common_ligatures_off(
+        self, service: ResumeService, settings: Settings
+    ) -> None:
+        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
+        assert r"\usepackage{fontspec}" in tex
+        assert r"\defaultfontfeatures{Ligatures=NoCommon}" in tex
+
+    def test_pdftex_keeps_its_own_answer(self, service: ResumeService, settings: Settings) -> None:
+        """``fontspec`` does not run under pdfTeX at all, so that branch keeps
+        ``cmap`` and T1 ``fontenc`` -- which is what the template always had."""
+        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
+        pdftex_branch = tex.split(r"\ifPDFTeX")[1].split(r"\else")[0]
+        assert r"\usepackage{cmap}" in pdftex_branch
+        assert r"\usepackage[T1]{fontenc}" in pdftex_branch
+        assert r"\usepackage[utf8]{inputenc}" in pdftex_branch
+
+    def test_the_conditional_is_balanced(self, service: ResumeService, settings: Settings) -> None:
+        """An unclosed conditional swallows the rest of the document."""
+        tex = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir).tex
+        assert tex.count(r"\ifPDFTeX") == tex.count(r"\fi") == tex.count(r"\else") == 1
+
+    def test_the_audit_still_passes(self, service: ResumeService, settings: Settings) -> None:
+        rendered = render_source(make_spec(service), 9.2, 11.0, template_dir=settings.template_dir)
+        assert rendered.warnings == []
+
+
 class TestAuditSource:
     def test_clean_source_passes(self) -> None:
         assert audit_source(r"\textbf{ok} \item x") == []
