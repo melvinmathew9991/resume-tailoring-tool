@@ -289,24 +289,29 @@ ALLOWED_COMMANDS: frozenset[str] = frozenset(
         "textendash",
         "textemdash",
         "\\",
-        # Engine-conditional font setup. The template has to ask which engine
-        # is running, because turning off the f-ligatures -- the difference
-        # between a resume an ATS can read and one it cannot -- is done by
-        # fontspec under XeTeX and by cmap plus T1 fontenc under pdfTeX.
+        # Engine-conditional font setup. The template loads T1 fontenc for
+        # pdfTeX only, because under XeTeX that same line is what makes the
+        # compiled PDF unreadable to a keyword scan: it sets the f-ligatures as
+        # single glyphs, and 14 words on the real resume extracted as something
+        # other than the letters that were typed.
         #
-        # Widening an allowlist is the thing this module exists to make
-        # deliberate, so: none of these three can read a file, write a file,
-        # define a macro or reach a shell -- `input`, `write`, `csname`, `def`
-        # and the rest stay in DANGEROUS_COMMANDS and are rejected whatever
-        # conditional they appear inside. The worst a stray `\fi` in content
-        # can do is produce a TeX error, which surfaces as a typed 422 rather
-        # than a resume. And content never reaches the source as a command in
-        # the first place: a summary goes through `escape_user_text`, so a
-        # user who types `\fi` gets the literal characters on their page.
+        # Two entries, and only two. Widening an allowlist is the thing this
+        # module exists to make deliberate, so the pair is justified rather than
+        # assumed: neither can read a file, write a file, define a macro or
+        # reach a shell -- `input`, `write`, `csname`, `def` and the rest stay
+        # in DANGEROUS_COMMANDS and are rejected whatever conditional they sit
+        # inside, because this audit is a flat scan that evaluates nothing. The
+        # worst a stray `\fi` in content can do is produce a TeX error, which
+        # surfaces as a typed 422 rather than a resume. And content cannot
+        # reach the source as a command at all: a summary goes through
+        # `escape_user_text`, so a user who types `\fi` gets the characters.
+        #
+        # `else` and `defaultfontfeatures` were briefly here too, for an
+        # `\else` branch that turned out to change nothing. They were removed
+        # when that was measured. An allowlist entry that buys nothing is worse
+        # than no entry at all, because the next reader assumes it was needed.
         "ifPDFTeX",
-        "else",
         "fi",
-        "defaultfontfeatures",
     }
 )
 

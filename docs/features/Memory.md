@@ -350,36 +350,48 @@ remedy, because "3.4% of words are missing" is a number and "these are set with
 ligatures, those are split by kerning" is a diagnosis.
 
 **The ligature half is now fixed** (applied after the check landed, on the
-author's decision). The preamble asks which engine is running: under XeTeX and
-LuaTeX it loads `fontspec` and sets `Ligatures=NoCommon`; under pdfTeX it keeps
-exactly what the template always had, `cmap` plus T1 `fontenc`, because
-`fontspec` does not run there at all. Measured on the real resume: **27 ligature
-codepoints to 0, and coverage 96.8% to 99.4%** -- `classification`,
-`verification`, `MLflow` and eleven others now read back. `microtype` was tried
-first and changes nothing under XeTeX.
+author's decision). The cause is one line: `\usepackage[T1]{fontenc}` forces
+the legacy 8-bit Type1 fonts, whose character map reports the `fi` ligature as
+a single glyph. It is now loaded for pdfTeX only -- where it is still needed,
+pdfTeX having no Unicode font path -- and XeTeX uses its native Unicode Latin
+Modern, which sets no f-ligatures at all. Measured on the real resume: **27
+ligature codepoints to 0, and coverage 96.8% to 99.4%** -- `classification`,
+`verification`, `MLflow` and eleven others now read back.
+
+**Two dead ends, recorded so nobody tries them again.** `microtype` changes
+nothing under XeTeX. Neither does `fontspec`: the first version of this fix
+loaded it and set `Ligatures=NoCommon`, which read convincingly, shipped, and
+turned out to do **nothing at all** -- compiling with the whole `\else` branch
+empty produces byte-identical output, and so does `Ligatures=Common`. The fix
+had always come from *withholding* `fontenc`, never from anything added. Both
+lines were removed, along with `else` and `defaultfontfeatures` from
+`ALLOWED_COMMANDS`; an allowlist entry that buys nothing is worse than no entry,
+because the next reader assumes it was load-bearing. `Kerning=Off` and
+`LetterSpace=0` were measured against the kerning splits and change nothing
+either.
+
+The lesson is the one the check itself exists to teach: in this area, measure
+the compiled artefact. Every one of these settings is documented as doing what
+it says, and four of the five changed not a single byte of output.
 
 The kerning splits survive every variant and are still reported. They are a
 property of the extractor rather than of the font, so there is nothing in the
 template that would fix them.
 
-**What it cost, and why that was acceptable.** `\ifPDFTeX`, `\else`, `\fi` and
-`\defaultfontfeatures` had to go on `ALLOWED_COMMANDS`, which is the security
-boundary this project deliberately makes hard to widen. The reasoning is
-recorded beside them in `domain/latex.py` and pinned by
-`TestConditionalsAreNotAWayIn`: none of the four can read a file, write a file,
-define a macro or reach a shell; `input`, `write`, `csname` and `def` stay in
+**What it cost.** Two entries on `ALLOWED_COMMANDS`, `\ifPDFTeX` and `\fi` --
+the security boundary this project deliberately makes hard to widen. The
+reasoning is recorded beside them in `domain/latex.py` and pinned by
+`TestConditionalsAreNotAWayIn`: neither can read a file, write a file, define a
+macro or reach a shell; `input`, `write`, `csname` and `def` stay in
 `DANGEROUS_COMMANDS` and are rejected whatever conditional they appear inside,
 because the audit is a flat scan of rendered source and evaluates nothing. User
 text cannot become a command in the first place -- a summary goes through
 `escape_user_text`, so a typed `\fi` lands on the page as characters.
 
-`\defaultfontfeatures` was missed on the first attempt and the audit caught it,
-which is the allowlist behaving exactly as designed.
-
-The pdfTeX branch is unverified locally (no TeX Live on this machine) and the
-`texlive` CI job only runs nightly and on tags. It is safe by construction --
-that branch is byte-for-byte what the template carried before -- but the first
-nightly run after this is the one that proves it.
+The pdfTeX branch cannot be verified on this machine (no TeX Live), and the
+`texlive` CI job ran only nightly and on tags. It now also accepts
+`workflow_dispatch`, because it is the only job that exercises that branch and
+waiting a day to test a change to it is how the branch rots.
 
 **False alarm found and fixed on the way.** `8--13` was reported as lost text:
 LaTeX turns `--` into an en dash, so the source and the page held the same

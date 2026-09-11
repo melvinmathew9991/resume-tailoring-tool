@@ -91,12 +91,12 @@ class TestServiceRejectsDangerousInput:
 
 
 class TestConditionalsAreNotAWayIn:
-    r"""``\ifPDFTeX``, ``\else`` and ``\fi`` were added to the allowlist so the
-    preamble could pick a font setup per engine. That widened the one boundary
+    r"""``\ifPDFTeX`` and ``\fi`` were added to the allowlist so the preamble
+    could withhold T1 ``fontenc`` from XeTeX. That widened the one boundary
     this module exists to guard, so each way it could be abused is pinned here.
     """
 
-    @pytest.mark.parametrize("payload", [r"\fi", r"\ifPDFTeX", r"\else \input{/etc/passwd} \fi"])
+    @pytest.mark.parametrize("payload", [r"\fi", r"\ifPDFTeX", r"\fi \input{/etc/passwd}"])
     def test_a_conditional_in_a_summary_becomes_literal_text(
         self, service: ResumeService, payload: str
     ) -> None:
@@ -120,7 +120,7 @@ class TestConditionalsAreNotAWayIn:
 
     @pytest.mark.parametrize("command", ["input", "csname", "def", "write", "immediate"])
     def test_dangerous_commands_are_still_dangerous(self, command: str) -> None:
-        """The allowlist got three conditionals, not an amnesty. Nothing that
+        """The allowlist got two conditionals, not an amnesty. Nothing that
         reads a file, defines a macro or reaches a shell moved."""
         assert command in DANGEROUS_COMMANDS
         assert command not in ALLOWED_COMMANDS
