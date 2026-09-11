@@ -34,6 +34,7 @@ from resume_tailor.core.config import Settings, get_settings
 from resume_tailor.core.errors import AppError, InvalidInputError, NotFoundError
 from resume_tailor.core.logging import configure_logging, get_logger
 from resume_tailor.data.bank_repo import BankRepository
+from resume_tailor.data.knowledge_repo import KnowledgeRepository
 from resume_tailor.data.profile_repo import ProfileRepository
 from resume_tailor.render.engines.base import PdfEngine
 from resume_tailor.render.engines.registry import select_engine
@@ -62,6 +63,7 @@ def build_service(settings: Settings, engine: PdfEngine | None = None) -> Resume
         settings=settings,
         bank_repo=BankRepository(settings.bank_path),
         profile_repo=ProfileRepository(settings.profile_path),
+        knowledge_repo=KnowledgeRepository(settings.knowledge_path),
         engine=engine or select_engine(settings),
     )
 

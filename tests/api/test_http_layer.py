@@ -206,8 +206,15 @@ class TestOpenApiContract:
             "/api/v1/projects/{key}",
             "/api/v1/match",
             "/api/v1/resume/preview",
+            "/api/v1/resume/ats",
             "/api/v1/resume/generate",
             "/api/v1/resume/{document_id}",
+            # The two standalone features. Neither shares a path prefix with
+            # the resume routes, which is the surface-level half of them being
+            # independent workflows.
+            "/api/v1/knowledge",
+            "/api/v1/knowledge/entries",
+            "/api/v1/ats/check",
         }
 
     def test_generate_response_documents_the_warning_field(self, client: TestClient) -> None:

@@ -13,7 +13,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Response
 
 from resume_tailor.api.deps import ApiKeyDep, ServiceDep
-from resume_tailor.api.schemas import GenerateResponse, PreviewResponse, ResumeRequest
+from resume_tailor.api.schemas import (
+    GenerateResponse,
+    PreviewResponse,
+    ResumeAtsRequest,
+    ResumeAtsResponse,
+    ResumeRequest,
+)
+from resume_tailor.api.v1.ats import breakdown_out, gates_out
 from resume_tailor.domain.models import ResumeSpec
 from resume_tailor.services.resume_service import ResumeService
 
@@ -54,6 +61,50 @@ def preview(payload: ResumeRequest, service: ServiceDep, _: ApiKeyDep = None) ->
         project_keys=spec.project_keys,
         bank_version=spec.bank_version,
         character_count=len(tex),
+    )
+
+
+@router.post(
+    "/resume/ats",
+    response_model=ResumeAtsResponse,
+    summary="Score the assembled resume against a job description",
+    responses={
+        400: {"description": "Invalid selection, options or job description."},
+    },
+)
+def resume_ats(
+    payload: ResumeAtsRequest, service: ServiceDep, _: ApiKeyDep = None
+) -> ResumeAtsResponse:
+    """What this resume scores -- not what the candidate scores.
+
+    Deliberately on the resume router rather than beside ``/ats/check``. The
+    standalone checker answers "should I apply?" from everything known about
+    the candidate; this answers "will this document pass?" from what is
+    actually printed on it, and so belongs to the resume workflow. Neither can
+    reach the other: ``/ats/check`` has no notion of a selection, and this one
+    compiles nothing.
+    """
+    spec = _build_spec(payload, service)
+    result = service.ats_check_resume(payload.jd_text, spec)
+    report = result.report
+    return ResumeAtsResponse(
+        score=report.score,
+        band=report.band,
+        breakdown=[breakdown_out(category) for category in report.breakdown],
+        missing_requirements=report.missing_requirements,
+        weak_requirements=report.weak_requirements,
+        matched_requirements=report.matched_requirements,
+        covered_elsewhere=result.covered_elsewhere,
+        requirement_count=report.requirement_count,
+        weights=report.weights,
+        priority_weights=report.priority_weights,
+        gates=gates_out(report),
+        uncapped_score=report.uncapped_score,
+        capped=report.capped,
+        gate_cap=report.gate_cap,
+        project_keys=spec.project_keys,
+        bank_version=spec.bank_version,
+        note=report.note,
     )
 
 

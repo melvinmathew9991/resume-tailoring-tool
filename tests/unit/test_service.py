@@ -6,14 +6,20 @@ boundary, so most of them have a named test here.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from resume_tailor.core.config import Settings
 from resume_tailor.core.errors import (
     HiddenProjectError,
     InvalidInputError,
     UnknownProjectError,
     UnsafeContentError,
 )
+from resume_tailor.data.bank_repo import BankRepository
+from resume_tailor.data.profile_repo import ProfileRepository
+from resume_tailor.render.engines.fake import FakeEngine
 from resume_tailor.services.resume_service import ResumeService
 
 pytestmark = pytest.mark.unit
@@ -285,3 +291,234 @@ class TestReadiness:
         report = service.readiness()
         assert report["ready"] is False
         assert report["checks"]["profile"]["ok"] is False
+
+
+class TestKnowledgeService:
+    """Feature 1 at the service layer: the rules that guard the store."""
+
+    def test_a_document_and_text_together_are_refused(self, service: ResumeService) -> None:
+        with pytest.raises(InvalidInputError, match="exactly one"):
+            service.update_knowledge(text="hi", document=b"hi", filename="a.txt")
+
+    def test_neither_is_refused(self, service: ResumeService) -> None:
+        with pytest.raises(InvalidInputError, match="exactly one"):
+            service.update_knowledge()
+
+    def test_an_unknown_mode_is_refused_before_anything_is_written(
+        self, service: ResumeService
+    ) -> None:
+        with pytest.raises(InvalidInputError, match="merge"):
+            service.update_knowledge(text="Skills\nPython\n", mode="wipe")
+        assert service.knowledge().is_empty
+
+    def test_updating_a_document_that_was_never_stored_is_refused(
+        self, service: ResumeService
+    ) -> None:
+        """A renamed file must not quietly become a merge: the caller asked
+        for the old version to go, and its stale facts would keep scoring."""
+        service.update_knowledge(document=b"Skills\nPython\n", filename="cv.txt")
+        with pytest.raises(InvalidInputError, match="no stored document is called"):
+            service.update_knowledge(
+                document=b"Skills\nTerraform\n", filename="points.txt", mode="supersede"
+            )
+        assert "terraform" not in {entry.value for entry in service.knowledge().entries}
+
+    def test_supersede_replaces_only_the_named_document(self, service: ResumeService) -> None:
+        service.update_knowledge(document=b"Skills\nKafka\n", filename="cv.txt")
+        service.update_knowledge(document=b"Skills\nPython, Terraform\n", filename="points.txt")
+        result = service.update_knowledge(
+            document=b"Skills\nPython\n", filename="points.txt", mode="supersede"
+        )
+        values = {entry.value for entry in result.knowledge.entries}
+        assert {"kafka", "python"} <= values
+        assert "terraform" not in values
+        assert result.stats.removed_entries == 1
+
+    def test_oversized_pasted_text_is_refused(
+        self, settings: Settings, service: ResumeService
+    ) -> None:
+        with pytest.raises(InvalidInputError, match="over the"):
+            service.update_knowledge(text="x" * (settings.max_knowledge_text_chars + 1))
+
+    def test_the_store_has_a_ceiling(self, data_dir: Path, engine: FakeEngine) -> None:
+        """A pathological document must not be able to grow the store without
+        bound across repeated merges."""
+        capped = Settings(
+            environment="test",
+            pdf_engine="fake",
+            log_level="WARNING",
+            data_dir=data_dir,
+            max_knowledge_entries=2,
+        )
+        service = ResumeService(
+            settings=capped,
+            bank_repo=BankRepository(capped.bank_path),
+            profile_repo=ProfileRepository(capped.profile_path),
+            engine=engine,
+        )
+        service.update_knowledge(text="Skills\nPython, SQL\n")
+        with pytest.raises(InvalidInputError, match="over the limit"):
+            service.update_knowledge(text="Skills\nTerraform, Airflow, Kafka\n")
+
+    def test_removal_reports_what_it_did(self, service: ResumeService) -> None:
+        service.update_knowledge(text="Skills\nPython, SQL\n")
+        _, removed = service.remove_knowledge_entry("skill", "python")
+        assert removed == 1
+        _, removed_again = service.remove_knowledge_entry("skill", "python")
+        assert removed_again == 0
+
+    def test_removal_needs_both_arguments(self, service: ResumeService) -> None:
+        with pytest.raises(InvalidInputError, match="required"):
+            service.remove_knowledge_entry("skill", "  ")
+
+    def test_clearing_empties_the_store(self, service: ResumeService) -> None:
+        service.update_knowledge(text="Skills\nPython\n")
+        assert service.clear_knowledge().is_empty
+
+
+class TestAtsService:
+    """Feature 2 at the service layer."""
+
+    def test_the_corpus_names_all_three_sources(self, service: ResumeService) -> None:
+        service.update_knowledge(text="Skills\nPython\n")
+        names = [source.name for source in service.candidate_corpus().sources]
+        assert names == ["knowledge", "profile", "bank"]
+
+    def test_an_empty_knowledge_store_is_simply_left_out(self, service: ResumeService) -> None:
+        """The profile and bank still answer, so a fresh installation can run a
+        check rather than being refused until it has been fed something."""
+        names = [source.name for source in service.candidate_corpus().sources]
+        assert names == ["profile", "bank"]
+
+    def test_an_empty_job_description_is_refused(self, service: ResumeService) -> None:
+        with pytest.raises(InvalidInputError, match="must not be empty"):
+            service.ats_check("   ")
+
+    def test_an_oversized_job_description_is_refused(
+        self, settings: Settings, service: ResumeService
+    ) -> None:
+        with pytest.raises(InvalidInputError, match="over the"):
+            service.ats_check("x" * (settings.max_jd_chars + 1))
+
+    def test_the_report_carries_both_versions(self, service: ResumeService) -> None:
+        service.update_knowledge(text="Skills\nPython\n")
+        report = service.ats_check("We need Python and SQL.")
+        assert report.knowledge_version == service.knowledge().version
+        assert report.bank_version == service.bank().version
+
+    def test_checking_writes_nothing(self, service: ResumeService, data_dir: Path) -> None:
+        before = {path.name: path.read_bytes() for path in data_dir.iterdir()}
+        service.ats_check("We need Python.")
+        assert {path.name: path.read_bytes() for path in data_dir.iterdir()} == before
+
+
+class TestKnowledgeStoreCeilings:
+    """Every list in the store has a limit, and each names the way out."""
+
+    def _service(self, data_dir: Path, engine: FakeEngine, **overrides: int) -> ResumeService:
+        settings = Settings(
+            environment="test",
+            pdf_engine="fake",
+            log_level="WARNING",
+            data_dir=data_dir,
+            **overrides,
+        )
+        return ResumeService(
+            settings=settings,
+            bank_repo=BankRepository(settings.bank_path),
+            profile_repo=ProfileRepository(settings.profile_path),
+            engine=engine,
+        )
+
+    def test_the_source_ceiling_is_enforced_with_an_actionable_message(
+        self, data_dir: Path, engine: FakeEngine
+    ) -> None:
+        """Sources accumulate one per document forever and nothing prunes them,
+        so this is the ceiling a real user reaches first. Before the fix it
+        surfaced as a raw ValidationError that named neither cause nor remedy."""
+        service = self._service(data_dir, engine, max_knowledge_sources=1)
+        service.update_knowledge(text="Skills\nPython\n")
+        with pytest.raises(InvalidInputError, match="source documents"):
+            service.update_knowledge(text="Skills\nTerraform\n")
+
+    def test_the_experience_ceiling_is_enforced(self, data_dir: Path, engine: FakeEngine) -> None:
+        service = self._service(data_dir, engine, max_knowledge_experience=1)
+        with pytest.raises(InvalidInputError, match="experience items"):
+            service.update_knowledge(
+                text="Work Experience\nA at X -- Jan 2020 - Dec 2020\n"
+                "B at Y -- Jan 2022 - Dec 2022\n"
+            )
+
+    def test_an_over_limit_update_leaves_the_store_untouched(
+        self, data_dir: Path, engine: FakeEngine
+    ) -> None:
+        service = self._service(data_dir, engine, max_knowledge_sources=1)
+        service.update_knowledge(text="Skills\nPython\n")
+        before = service.knowledge().version
+        with pytest.raises(InvalidInputError):
+            service.update_knowledge(text="Skills\nTerraform\n")
+        assert service.knowledge().version == before
+
+    def test_a_configured_limit_cannot_exceed_the_structural_cap(self) -> None:
+        """If it could, the friendly check would be unreachable and pydantic
+        would answer instead, from a layer that cannot explain itself."""
+        with pytest.raises(ValueError, match="less than or equal to"):
+            Settings(environment="test", max_knowledge_entries=20_001)
+
+
+class TestConcurrentKnowledgeUpdates:
+    def test_two_simultaneous_updates_do_not_lose_entries(self, service: ResumeService) -> None:
+        """Read-modify-write across load/save. Without the service lock both
+        threads read the same base and the later save silently discarded the
+        earlier thread's entries."""
+        import threading
+
+        barrier = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def add(text: str) -> None:
+            try:
+                barrier.wait(timeout=10)
+                service.update_knowledge(text=text)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=add, args=("Technical Skills\nTerraform\n",)),
+            threading.Thread(target=add, args=("Technical Skills\nSnowflake\n",)),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        assert not errors, errors
+        values = {entry.value for entry in service.knowledge().entries}
+        assert {"terraform", "snowflake"} <= values
+
+
+class TestProfileExperienceCounts:
+    def test_the_profile_supplies_dated_experience_when_the_store_is_empty(
+        self, service: ResumeService
+    ) -> None:
+        """The fresh-checkout case: knowledge.json does not exist yet and
+        profile.yaml is fully populated. Scoring every "N years" requirement as
+        missing there would zero a 15%-weighted category for someone whose
+        experience the repository plainly holds."""
+        corpus = service.candidate_corpus()
+        assert corpus.experience_months > 0
+        assert corpus.experience_sources == ("profile",)
+
+    def test_both_sources_are_reported_when_both_have_dates(self, service: ResumeService) -> None:
+        service.update_knowledge(text="Work Experience\nEngineer at Acme -- Jan 2015 - Dec 2016\n")
+        corpus = service.candidate_corpus()
+        assert corpus.experience_sources == ("knowledge", "profile")
+
+    def test_a_role_in_both_sources_is_counted_once(self, service: ResumeService) -> None:
+        """The profile fixture's one dated role is 2024--2025. Re-stating it as
+        candidate knowledge must not double the total."""
+        before = service.candidate_corpus().experience_months
+        service.update_knowledge(
+            text="Work Experience\nData Scientist at Test Corp -- 2024 - 2025\n"
+        )
+        assert service.candidate_corpus().experience_months == before

@@ -113,6 +113,31 @@ class ProfileError(AppError):
     title = "Resume profile is invalid"
 
 
+class KnowledgeError(AppError):
+    code = "knowledge_invalid"
+    status_code = 500
+    title = "Candidate knowledge store is invalid"
+    """The store on disk is unreadable or fails validation.
+
+    A 500 like :class:`BankError`, and for the same reason: ``knowledge.json``
+    is written by this application, so a bad one is our fault, not the
+    caller's. Bad *input* to a knowledge update is an
+    :class:`ExtractionError` or an :class:`InvalidInputError` instead."""
+
+
+class ExtractionError(InvalidInputError):
+    code = "extraction_failed"
+    status_code = 422
+    title = "Could not read the submitted document"
+    """An upload this tool cannot turn into text: an empty file, a legacy
+    ``.doc``, a password-protected or image-only PDF, a corrupt archive.
+
+    422 rather than 400 because the request is well-formed -- the *content* is
+    what cannot be processed -- and it is separated from ``invalid_input`` so
+    the UI can offer the one piece of advice that always applies here: paste
+    the text instead."""
+
+
 class TemplateRenderError(AppError):
     code = "template_render_failed"
     status_code = 500

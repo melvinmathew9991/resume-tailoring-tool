@@ -159,6 +159,62 @@ def task_doctor() -> None:
         )
 
 
+def task_knowledge() -> None:
+    """Report the candidate knowledge store: counts, sources and warnings.
+
+    The answer to "how do I know the upload worked?". Entry counts alone cannot
+    tell you -- a store built from a document whose prose was read as a skills
+    list looks thorough and is wrong -- so the warnings are the part to read.
+    """
+    from collections import Counter
+
+    from resume_tailor.core.config import get_settings
+    from resume_tailor.data.knowledge_repo import KnowledgeRepository
+    from resume_tailor.domain.knowledge import lint_knowledge
+    from resume_tailor.domain.vocabulary import category_of
+
+    settings = get_settings()
+    path = settings.knowledge_path
+    print(f"store:   {path}")
+    if not path.exists():
+        print("         (absent -- nothing has been uploaded yet)")
+        return
+
+    knowledge = KnowledgeRepository(path).load()
+    print(f"version: {knowledge.version}")
+    print(f"entries: {len(knowledge.entries)}")
+    print(f"by category: {dict(Counter(e.category for e in knowledge.entries))}")
+    print(
+        f"dated experience: {knowledge.total_experience_months()} month(s) "
+        f"across {len(knowledge.experience)} role(s)"
+    )
+
+    print("sources:")
+    for source in knowledge.sources:
+        owned = sum(1 for e in knowledge.entries if e.source_id == source.source_id)
+        print(
+            f"  - {source.label} ({source.kind}, {source.characters:,} chars) "
+            f"-> {owned} entries, added {source.added_at}"
+        )
+
+    declared = [e for e in knowledge.entries if e.category in ("skill", "tool")]
+    unknown = [e for e in declared if category_of(e.value) is None]
+    if declared:
+        print(
+            f"recognised terms: {len(declared) - len(unknown)} of {len(declared)} "
+            f"skill/tool entries"
+        )
+
+    warnings = lint_knowledge(knowledge)
+    print("")
+    if warnings:
+        print(f"warnings ({len(warnings)}):")
+        for warning in warnings:
+            print(f"  ! {warning}")
+    else:
+        print("no warnings -- the store looks healthy")
+
+
 TASKS = {
     "setup": task_setup,
     "test": task_test,
@@ -172,6 +228,7 @@ TASKS = {
     "ui": task_ui,
     "dev": task_dev,
     "doctor": task_doctor,
+    "knowledge": task_knowledge,
 }
 
 

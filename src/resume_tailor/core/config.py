@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     data_dir: Path = Field(default_factory=_default_data_dir)
     bank_filename: str = "project_bank.json"
     profile_filename: str = "profile.yaml"
+    knowledge_filename: str = "knowledge.json"
+    """Candidate knowledge (Feature 1). Unlike the other two content files this
+    one is *written* by the application, and it is absent on a fresh checkout --
+    an empty knowledge base, not an error."""
     template_dir: Path = _PACKAGE_ROOT / "render" / "templates"
     template_name: str = "resume.tex.j2"
 
@@ -140,6 +144,31 @@ class Settings(BaseSettings):
     page-fit guarantee into a no-op (defect B5)."""
     max_gap_terms: int = Field(default=30, ge=1)
 
+    max_knowledge_document_bytes: int = Field(default=4_194_304, ge=1024)
+    """Ceiling on one uploaded document, before extraction.
+
+    Larger than `max_body_bytes` on purpose. Embedded mode hands the bytes
+    straight to the service with no HTTP hop, so this is the limit that applies
+    there; over HTTP the (smaller) body limit bites first, which is the right
+    order -- a huge upload is rejected before it is buffered."""
+
+    max_knowledge_text_chars: int = Field(default=200_000, ge=1)
+    """Ceiling on pasted knowledge text."""
+
+    max_knowledge_entries: int = Field(default=5_000, ge=1, le=20_000)
+    max_knowledge_experience: int = Field(default=500, ge=1, le=2_000)
+    max_knowledge_sources: int = Field(default=200, ge=1, le=1_000)
+    """Ceilings on the knowledge store, so a pathological document -- or a long
+    history of ordinary ones -- cannot grow it without bound across repeated
+    merges.
+
+    Each upper bound is the matching hard cap on the model in
+    ``domain/knowledge.py``. That relationship is load-bearing rather than
+    tidy: configure a limit *above* the structural cap and the service's
+    check can never fire, so the user gets a raw validation error from
+    pydantic instead of a message telling them what to do about it.
+    """
+
     # -- rate limiting ------------------------------------------------------
     rate_limit_per_minute: int = Field(default=120, ge=1)
     generate_rate_limit_per_minute: int = Field(default=12, ge=1)
@@ -157,6 +186,10 @@ class Settings(BaseSettings):
     @property
     def profile_path(self) -> Path:
         return self.data_dir / self.profile_filename
+
+    @property
+    def knowledge_path(self) -> Path:
+        return self.data_dir / self.knowledge_filename
 
     @field_validator("cors_origins", mode="before")
     @classmethod

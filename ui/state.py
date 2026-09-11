@@ -14,9 +14,24 @@ from typing import Any
 
 import streamlit as st
 
-from resume_tailor.api.schemas import GenerateResponse, MatchResponse, MetaResponse
+from resume_tailor.api.schemas import (
+    AtsResponse,
+    GenerateResponse,
+    KnowledgeResponse,
+    MatchResponse,
+    MetaResponse,
+    ResumeAtsResponse,
+)
 
 STATE_KEY = "resume_tailor_state"
+
+#: The three top-level features, in sidebar order. The tailoring flow is first
+#: because it is what the tool is for; the other two are independent of it and
+#: of each other.
+TAILOR_VIEW = "Tailor resume"
+KNOWLEDGE_VIEW = "Profile knowledge"
+ATS_VIEW = "ATS match check"
+VIEWS = (TAILOR_VIEW, KNOWLEDGE_VIEW, ATS_VIEW)
 
 
 @dataclass
@@ -33,11 +48,31 @@ class AppState:
     ``result.filename``, which the backend derives from the profile name, and a
     second copy in session state would be one more thing to keep in sync -- the
     stale one would silently name the download ``resume.pdf``."""
+    resume_ats: ResumeAtsResponse | None = None
+    """How the *assembled resume* scores, recomputed on every rerun because it
+    is pure text matching and costs nothing. Distinct from ``ats``, which is
+    the standalone check against the whole knowledge base -- the two answer
+    different questions and must not share a slot."""
     generating: bool = False
     """Guards the Generate button. Without it, a double-click queues a second
     compile behind the first -- two multi-second TeX runs for one intent."""
     bank_version: str = ""
     error: str = ""
+
+    # -- feature 1: candidate knowledge -------------------------------------
+    knowledge: KnowledgeResponse | None = None
+    """Cached so the view can render without a fetch on every rerun. Replaced
+    wholesale by the response to an update, never patched in place -- a locally
+    edited copy would be a second source of truth for the same store."""
+    knowledge_paste: str = ""
+    knowledge_message: str = ""
+
+    # -- feature 2: ats match check -----------------------------------------
+    ats_jd_text: str = ""
+    """Kept separate from ``jd_text``. The two features are independent, and
+    sharing one box would mean checking a job description silently reset the
+    tailoring flow's match results."""
+    ats: AtsResponse | None = None
 
 
 def get_state() -> AppState:

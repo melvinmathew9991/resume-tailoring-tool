@@ -148,8 +148,14 @@ with a stable machine-readable `code`.
 | GET | `/api/v1/projects/{key}` | One project, with bullets as display text. |
 | POST | `/api/v1/match` | Rank projects against a JD; report gap terms. |
 | POST | `/api/v1/resume/preview` | Render LaTeX **without compiling**. Works with no engine installed. |
+| POST | `/api/v1/resume/ats` | Score the assembled resume against a JD. Compiles nothing. |
 | POST | `/api/v1/resume/generate` | Compile, with the page-fit guarantee. |
 | GET | `/api/v1/resume/{id}` | Stream the PDF. |
+| GET | `/api/v1/knowledge` | Everything the system knows about the candidate. |
+| POST | `/api/v1/knowledge` | Add knowledge from pasted text or an uploaded document. |
+| DELETE | `/api/v1/knowledge/entries` | Remove one entry by `category` and `value`. |
+| DELETE | `/api/v1/knowledge` | Empty the knowledge store. |
+| POST | `/api/v1/ats/check` | Score a JD against stored knowledge. Generates nothing. |
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/v1/resume/generate \
@@ -194,6 +200,120 @@ duplicated JSON key is an error rather than a silently-dropped project.
 Set `"hidden": true` on anything unverified. Hidden projects are excluded from
 listings, from matching, **and from generation** — they cannot reach a resume
 by any path.
+
+---
+
+## Profile knowledge
+
+Two things the tool does that have nothing to do with generating a resume. Pick
+them from the **Feature** switch in the sidebar.
+
+### Updating what the system knows about you
+
+`data/knowledge.json` holds the candidate's own skills, tools, domains,
+education, certifications and dated experience. Add to it from the **Profile
+knowledge** view, or over the API, from:
+
+- a **PDF**, **DOCX**, **TXT** or **MD** upload, or
+- **pasted text**.
+
+Legacy `.doc` is refused with an explanation rather than half-read — it is an
+OLE binary and reading it would mean a new dependency. Save it as `.docx` or
+`.pdf`, or paste the text.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/knowledge \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Technical Skills\nPython, SQL, Airflow","mode":"merge"}'
+```
+
+**Checking it worked.** Entry counts alone will not tell you -- a document
+whose prose gets read as a skills list produces thousands of entries and looks
+thorough. So the store is linted, the same way `project_bank.json` already is:
+
+```bash
+python tasks.py knowledge     # counts, sources, and content warnings
+```
+
+The same warnings appear at the top of the Profile knowledge view, and in the
+`warnings` field of `GET /api/v1/knowledge`. A clean store says so explicitly.
+The `version` field is a content hash: if it did not change, nothing was
+written.
+
+Three rules make this safe to run repeatedly:
+
+- **`mode=merge` is the default and never removes anything.** Re-uploading a
+  document you have already added changes nothing and says so. `mode=replace`
+  is the only lossy option and has to be asked for by name.
+- **Nothing is inferred.** Extraction is rule-based; every entry stores the
+  verbatim line it came from, and the UI shows it. There is no model here that
+  could decide you are "experienced in" something you once listed.
+- **It cannot reach your resume.** This store is separate from
+  `data/profile.yaml` and `data/project_bank.json`, which stay hand-edited.
+  An uploaded document can never put unverified prose onto a generated PDF.
+
+Documents are sent as base64 in the JSON body rather than as a multipart
+upload, which is what keeps `python-multipart` out of the dependency list. The
+Streamlit UI does the encoding for you (and skips it entirely in embedded
+mode).
+
+### Checking a job description — the ATS match score
+
+The **ATS match check** view scores a pasted JD against that knowledge and
+tells you what is missing. It does not generate, preview or modify a resume.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/ats/check \
+  -H 'Content-Type: application/json' \
+  -d '{"jd_text":"Senior Data Scientist. 4+ years with Python, SQL, Snowflake."}'
+```
+
+You get a percentage, a band, and a breakdown across six factors — skills,
+tools, experience, responsibilities/domain, education/certifications and other
+keywords — with every requirement marked **exact**, **related** or **missing**,
+and every match reporting which source it came from.
+
+The scoring is arithmetic and published with the result, so you can recompute
+it by hand:
+
+- fixed category weights (skills 0.30, tools 0.20, experience 0.15,
+  responsibilities 0.15, education 0.10, keywords 0.10), returned in every
+  response;
+- exact = 1.0, related = 0.5, missing = 0.0;
+- categories the posting never mentions are dropped and their weight is shared
+  out, so a JD that says nothing about education does not score you a zero for
+  it;
+- **each requirement counts once.** Repeating a word twenty times in a job
+  description cannot raise your score. Occurrence counts are reported and are
+  not an input.
+
+The candidate side is your knowledge store *plus* `profile.yaml` and
+`project_bank.json`, so the check is useful before you have uploaded anything.
+
+### Two scores, two questions
+
+The **Tailor resume** view shows its own ATS score, and it is deliberately a
+different number:
+
+| | Scores | Answers | Changes when |
+|---|---|---|---|
+| **ATS match check** view | everything known about you | "should I apply?" | you add profile knowledge |
+| **Tailor resume**, step 4 | the resume you are assembling | "will this PDF pass the screen?" | you change the project selection |
+
+The resume score counts only what is *printed*: your profile plus the bullets
+that survive the bullet budget. A project's `keywords` and `domain` tags in the
+bank are excluded — they drive matching, they never reach the page, and
+counting them would flatter a resume for words no screen can see. So a project
+tagged `nlp` that never says "NLP" in a bullet will not move this score, which
+is the honest answer.
+
+It is computed without compiling, so it updates as you tick projects on and
+off. The gap it reports is split in two: requirements missing from the page
+that you *do* cover elsewhere (fix by choosing a different project) and
+requirements missing everywhere (a real gap).
+Same caveat as `/match`: this is literal and alias-aware term matching, not
+comprehension. A missing requirement means the term is absent from your stored
+knowledge, which is not the same as being absent from your experience.
 
 ---
 

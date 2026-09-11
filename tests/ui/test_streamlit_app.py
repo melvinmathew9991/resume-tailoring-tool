@@ -273,3 +273,211 @@ class TestCloudEntrypoint:
         monkeypatch.setattr("urllib.request.urlopen", explode)
         cloud_app.run()
         assert not cloud_app.exception
+
+
+class TestFeatureNavigation:
+    """The sidebar switch between the three top-level features.
+
+    The tailoring flow is the default, so every existing test above continues
+    to exercise it without knowing the switch exists -- which is the property
+    worth protecting here.
+    """
+
+    def test_the_default_view_is_the_tailoring_flow(self, app: AppTest) -> None:
+        assert app.sidebar.radio[0].value == "Tailor resume"
+        assert "Resume Tailoring Tool" in app.title[0].value
+
+    def test_the_three_features_are_offered(self, app: AppTest) -> None:
+        assert app.sidebar.radio[0].options == [
+            "Tailor resume",
+            "Profile knowledge",
+            "ATS match check",
+        ]
+
+    def test_the_knowledge_view_renders_its_empty_state(self, app: AppTest) -> None:
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        assert not app.exception
+        assert "Profile knowledge" in app.title[0].value
+        assert any("Nothing yet" in info.value for info in app.info)
+
+    def test_pasted_text_is_stored_and_the_result_is_reported(self, app: AppTest) -> None:
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        app.radio(key="knowledge_method").set_value("Paste text").run()
+        app.text_area(key="knowledge_paste_box").set_value(
+            "Technical Skills\nPython, SQL, Airflow\n"
+        ).run()
+        app.button[0].click().run()
+
+        assert not app.exception
+        assert any("Added" in success.value for success in app.success)
+
+    def test_saving_nothing_asks_for_input_rather_than_failing(self, app: AppTest) -> None:
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        app.radio(key="knowledge_method").set_value("Paste text").run()
+        app.button[0].click().run()
+        assert not app.exception
+        assert any("Paste some text" in warning.value for warning in app.warning)
+
+    def test_the_ats_view_renders_and_scores(self, app: AppTest) -> None:
+        app.sidebar.radio[0].set_value("ATS match check").run()
+        assert not app.exception
+        assert "ATS match check" in app.title[0].value
+
+        app.text_area(key="ats_jd_box").set_value(
+            "We need Python, SQL and Snowflake for a fintech team."
+        ).run()
+        app.button(key="ats_check_button").click().run()
+
+        assert not app.exception
+        assert app.metric.len >= 3, "score, requirement count and band"
+        assert any("Gaps" in header.value for header in app.header)
+
+    def test_the_ats_view_asks_for_a_job_description_first(self, app: AppTest) -> None:
+        app.sidebar.radio[0].set_value("ATS match check").run()
+        app.button(key="ats_check_button").click().run()
+        assert not app.exception
+        assert any("Paste a job description" in warning.value for warning in app.warning)
+
+    def test_the_ats_view_offers_no_way_to_generate_a_resume(self, app: AppTest) -> None:
+        """Feature 2 is standalone: there is no project selection and no
+        generate button anywhere on the page."""
+        app.sidebar.radio[0].set_value("ATS match check").run()
+        app.text_area(key="ats_jd_box").set_value("We need Python.").run()
+        app.button(key="ats_check_button").click().run()
+
+        labels = {button.label for button in app.button}
+        assert "Generate PDF" not in labels
+        assert "Preview LaTeX" not in labels
+        assert app.checkbox.len == 0
+
+    def test_the_save_confirmation_is_shown_once_and_not_re_asserted(self, app: AppTest) -> None:
+        """Session state outlives the rerun that set it, so a message left in
+        place would re-announce a save on every later interaction."""
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        app.radio(key="knowledge_method").set_value("Paste text").run()
+        app.text_area(key="knowledge_paste_box").set_value("Skills\nPython\n").run()
+        app.button[0].click().run()
+        assert any("Added" in success.value for success in app.success)
+
+        app.run()
+        assert not any("Added" in success.value for success in app.success)
+
+    def test_the_tailoring_view_scores_the_resume_without_compiling(self, app: AppTest) -> None:
+        """The score is feedback on the project selection, so it must appear
+        before -- and without -- a compile."""
+        app.text_area[0].set_value("We need Python, SQL and FastAPI.").run()
+        app.button[0].click().run()
+        assert not app.exception
+        assert any("ATS match" in header.value for header in app.header)
+        assert any(metric.label.startswith("ATS match") for metric in app.metric)
+
+    def test_the_two_scores_are_labelled_as_different_questions(self, app: AppTest) -> None:
+        """One scores the document, the other scores the candidate. Two
+        similar-looking numbers meaning different things is the failure worth
+        preventing outright."""
+        app.text_area[0].set_value(JD).run()
+        app.button[0].click().run()
+        assert any("this resume" in caption.value for caption in app.caption)
+
+
+class TestClientCacheInvalidation:
+    """`get_client` is `st.cache_resource`, which outlives a hot reload.
+
+    Streamlit only invalidates that cache when the decorated function's own
+    source changes, so editing `ui/client.py` used to leave a live session
+    holding an instance of the previous class -- failing with `AttributeError`
+    on any newly added method while the source on disk plainly had it.
+    """
+
+    def test_the_fingerprint_is_stable_while_the_file_is(self) -> None:
+        from ui.client import source_fingerprint
+
+        assert source_fingerprint() == source_fingerprint()
+        assert source_fingerprint() != "unknown"
+
+    def test_the_fingerprint_changes_when_the_module_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ui import client as client_module
+
+        stand_in = tmp_path / "client.py"
+        stand_in.write_text("# v1", encoding="utf-8")
+        monkeypatch.setattr(client_module, "__file__", str(stand_in))
+        before = client_module.source_fingerprint()
+
+        stand_in.write_text("# v2 -- a method was added", encoding="utf-8")
+        assert client_module.source_fingerprint() != before
+
+    def test_a_missing_file_degrades_rather_than_raising(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from ui import client as client_module
+
+        monkeypatch.setattr(client_module, "__file__", str(tmp_path / "gone.py"))
+        assert client_module.source_fingerprint() == "unknown"
+
+    def test_every_client_method_exists_in_both_modes(self) -> None:
+        """The AttributeError that started this: the two implementations must
+        cover the whole protocol, or one mode fails on a call the other
+        serves."""
+        from ui.client import BackendClient, EmbeddedBackendClient, HttpBackendClient
+
+        required = {
+            name
+            for name in BackendClient.__annotations__ | vars(BackendClient).keys()
+            if not name.startswith("_") and name != "mode"
+        }
+        for implementation in (HttpBackendClient, EmbeddedBackendClient):
+            missing = [name for name in required if not hasattr(implementation, name)]
+            assert not missing, f"{implementation.__name__} is missing {missing}"
+
+    def test_the_knowledge_view_re_reads_the_store_every_render(
+        self, app: AppTest, data_dir: Path
+    ) -> None:
+        """A cached copy is how "the app did not pick up my upload" happens.
+
+        The store is written by this app, by `tasks.py`, and potentially by
+        another session, so the view must not render a snapshot.
+        """
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        app.radio(key="knowledge_method").set_value("Paste text").run()
+        app.text_area(key="knowledge_paste_box").set_value("Skills\nPython\n").run()
+        app.button[0].click().run()
+
+        # Change the store behind the app's back, then rerun without interacting.
+        store = data_dir / "knowledge.json"
+        assert store.exists()
+        store.write_text('{"entries": [], "experience": [], "sources": []}', encoding="utf-8")
+        app.run()
+
+        assert not app.exception
+        assert any("Nothing yet" in info.value for info in app.info)
+
+    def test_an_upload_invalidates_a_previous_ats_report(self, app: AppTest) -> None:
+        """Otherwise a fresh knowledge base is compared against a score that
+        predates it, which reads as the two features disagreeing."""
+        app.sidebar.radio[0].set_value("ATS match check").run()
+        app.text_area(key="ats_jd_box").set_value("We need Python and Terraform.").run()
+        app.button(key="ats_check_button").click().run()
+        assert app.metric.len > 0, "a score was produced"
+
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        app.radio(key="knowledge_method").set_value("Paste text").run()
+        app.text_area(key="knowledge_paste_box").set_value("Skills\nTerraform\n").run()
+        app.button[0].click().run()
+
+        app.sidebar.radio[0].set_value("ATS match check").run()
+        assert not app.exception
+        # The stale report is gone; the view stops before rendering a score.
+        assert not any(m.label.startswith("ATS match") for m in app.metric)
+
+    def test_merge_on_an_unhealthy_store_points_at_replace(self, app: AppTest) -> None:
+        """Merge cannot clean a polluted store. Saying so where the choice is
+        made is the difference between a dead end and a next step."""
+        app.sidebar.radio[0].set_value("Profile knowledge").run()
+        app.radio(key="knowledge_method").set_value("Paste text").run()
+        app.text_area(key="knowledge_paste_box").set_value("Skills\nPython\n").run()
+        app.button[0].click().run()
+
+        # The seeded store warns (no dated roles), so the merge hint must show.
+        assert any("Merge cannot fix them" in info.value for info in app.info)
